@@ -1,0 +1,191 @@
+name: Neuro-Symbolic Corridor CI/CD Guardrails
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly deep property-fuzzing & SLA regression run at 02:00 UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ============================================================================
+  # STAGE 1: Fast Static Analysis, Type-Safety & Lint Gate (< 30s)
+  # ============================================================================
+  lint-and-typecheck:
+    name: "Stage 1: Static Analysis & Type Safety"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv & Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Setup Go 1.26
+        uses: actions/setup-go@v5
+        with:
+          go-version: "^1.26.0"
+          cache-dependency-path: services/gateway-go/go.mod
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/command-center/package-lock.json
+
+      - name: Python Ruff Lint & Format Check (solver-py)
+        working-directory: services/solver-py
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -e ".[dev]"
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+
+      - name: Go Vet & Formatting Check (gateway-go)
+        working-directory: services/gateway-go
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+
+      - name: Frontend Strict TypeScript Check (command-center)
+        working-directory: apps/command-center
+        run: |
+          npm ci
+          npx tsc --noEmit
+
+  # ============================================================================
+  # STAGE 2A: Python Solver L1 Unit, L1.5 Property Fuzzing & Coverage Ratchet
+  # ============================================================================
+  solver-py-guardrails:
+    name: "Stage 2A: Python Z3+MILP Unit, Property Fuzzing & ≥95% Coverage"
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv & Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install solver-py dependencies
+        working-directory: services/solver-py
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -e ".[dev]"
+
+      - name: Run L1 Unit + L1.5 Hypothesis Property Fuzzing + L2/L3 Gates
+        working-directory: services/solver-py
+        run: |
+          .venv/bin/pytest -v --cov=app --cov-report=term-missing --cov-fail-under=95
+
+  # ============================================================================
+  # STAGE 2B: Go Gateway Race-Checked Unit & Concurrency Store Tests
+  # ============================================================================
+  gateway-go-guardrails:
+    name: "Stage 2B: Go Gateway Race Detector & ≥85% Coverage"
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go 1.26
+        uses: actions/setup-go@v5
+        with:
+          go-version: "^1.26.0"
+          cache-dependency-path: services/gateway-go/go.mod
+
+      - name: Run Go Race-Checked Unit Tests & Coverage Gate
+        working-directory: services/gateway-go
+        run: |
+          go test -race -v -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+
+  # ============================================================================
+  # STAGE 2C: Command Center UI Component, A11y & Production Bundle Gate
+  # ============================================================================
+  command-center-guardrails:
+    name: "Stage 2C: Command Center Vitest, A11y & Bundle Gate"
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/command-center/package-lock.json
+
+      - name: Install dependencies, run Vitest & build bundle
+        working-directory: apps/command-center
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+  # ============================================================================
+  # STAGE 3: Live Cross-Service E2E Contract & <400ms P99 Latency SLA Gate
+  # ============================================================================
+  e2e-contract-and-sla-gate:
+    name: "Stage 3: Live Go <-> Python E2E Contract & <400ms P99 SLA Gate"
+    runs-on: ubuntu-latest
+    needs: [solver-py-guardrails, gateway-go-guardrails, command-center-guardrails]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv & Python 3.12
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Setup Go 1.26
+        uses: actions/setup-go@v5
+        with:
+          go-version: "^1.26.0"
+          cache-dependency-path: services/gateway-go/go.mod
+
+      - name: Boot solver-py and execute live cross-service E2E + P99 SLA benchmark
+        run: |
+          cd services/solver-py
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -e ".[dev]"
+          .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 18001 &
+          SOLVER_PID=$!
+          trap "kill $SOLVER_PID 2>/dev/null || true" EXIT
+
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:18001/health >/dev/null; then
+              break
+            fi
+            sleep 0.2
+          done
+
+          cd ../gateway-go
+          LIVE_SOLVER_URL=http://127.0.0.1:18001 go test -count=1 -race -v -run TestLiveSolverEndToEndContractAndSLAGate ./...

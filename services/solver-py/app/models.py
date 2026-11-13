@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class TransportMode(str, Enum):
+class TransportMode(StrEnum):
     SEA = "SEA"
     GREEN_CORRIDOR_TRUCK = "GREEN_CORRIDOR_TRUCK"
     ETIHAD_RAIL_BONDED = "ETIHAD_RAIL_BONDED"

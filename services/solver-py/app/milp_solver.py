@@ -60,7 +60,9 @@ def _evaluate_candidate(
 
     spoilage_exposure = 0.0
     if shipment.is_temp_sensitive and arrival_temp_c > shipment.max_temp_c:
-        spoilage_exposure = shipment.cargo_value_usd * (shipment.spoilage_risk_pct_on_breach / 100.0)
+        spoilage_exposure = shipment.cargo_value_usd * (
+            shipment.spoilage_risk_pct_on_breach / 100.0
+        )
 
     total_economic_cost = freight_cost + demurrage_cost + tariff_penalty + spoilage_exposure
 
@@ -98,8 +100,7 @@ def _solve_milp_for_alpha(
     # Objective: alpha * EconomicCost + (1 - alpha) * ValueOfTime * Hours
     c = np.array(
         [
-            alpha * cand.total_economic_cost_usd
-            + (1.0 - alpha) * value_of_time * cand.total_hours
+            alpha * cand.total_economic_cost_usd + (1.0 - alpha) * value_of_time * cand.total_hours
             for cand in feasible_candidates
         ],
         dtype=np.float64,
@@ -175,9 +176,13 @@ def solve_corridor(
         )
 
     baseline = next((c for c in candidates if c.is_baseline), candidates[0])
-    net_savings_usd = max(0.0, baseline.total_economic_cost_usd - optimal_route.total_economic_cost_usd)
+    net_savings_usd = max(
+        0.0, baseline.total_economic_cost_usd - optimal_route.total_economic_cost_usd
+    )
     demurrage_prevented = max(0.0, baseline.demurrage_cost_usd - optimal_route.demurrage_cost_usd)
-    spoilage_prevented = max(0.0, baseline.spoilage_exposure_usd - optimal_route.spoilage_exposure_usd)
+    spoilage_prevented = max(
+        0.0, baseline.spoilage_exposure_usd - optimal_route.spoilage_exposure_usd
+    )
     hours_saved = max(0.0, baseline.total_hours - optimal_route.total_hours)
     platform_fee_usd = net_savings_usd * CLEARINGHOUSE_TAKE_RATE
 

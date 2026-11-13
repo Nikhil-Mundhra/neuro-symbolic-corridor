@@ -18,7 +18,17 @@ def test_health_and_topology() -> None:
 
     topo = client.get("/topology").json()
     node_ids = {n["id"] for n in topo["nodes"]}
-    assert {"INNSA", "OMSLL", "OMSOH", "AEFJR", "AEWAJ", "AEKHL", "AEJEA", "AEAUH", "EUFRA"}.issubset(node_ids)
+    assert {
+        "INNSA",
+        "OMSLL",
+        "OMSOH",
+        "AEFJR",
+        "AEWAJ",
+        "AEKHL",
+        "AEJEA",
+        "AEAUH",
+        "EUFRA",
+    }.issubset(node_ids)
     assert len(topo["edges"]) >= 12
 
 
@@ -86,7 +96,10 @@ def test_unbonded_spot_truck_always_rejected_by_z3_under_cepa() -> None:
     certs_by_id = {c["route_id"]: c for c in data["z3_certificates"]}
     unbonded = certs_by_id["ROUTE_SOHAR_UNBONDED_SPOT_TRAP"]
     assert unbonded["status"] == "UNSAT"
-    assert "UNBONDED" in (unbonded["violation_summary"] or "").upper() or "CEPA" in (unbonded["violation_summary"] or "").upper()
+    assert (
+        "UNBONDED" in (unbonded["violation_summary"] or "").upper()
+        or "CEPA" in (unbonded["violation_summary"] or "").upper()
+    )
 
 
 def test_bol_parser_extracts_constraints() -> None:

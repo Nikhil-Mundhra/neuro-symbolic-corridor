@@ -24,7 +24,11 @@ def compute_gnn_warmstart(
                 1.0 if edge.touches_jebel_ali else 0.0,
                 disruption.hormuz_delay_hours / 120.0,
                 disruption.jebel_ali_congestion_hours / 72.0,
-                0.95 if (disruption.reefer_fault and shipment.is_temp_sensitive and edge.base_hours > 120) else 0.05,
+                0.95
+                if (
+                    disruption.reefer_fault and shipment.is_temp_sensitive and edge.base_hours > 120
+                )
+                else 0.05,
                 0.0 if edge.has_continuous_customs_seal else 1.0,
             ],
             dtype=np.float64,

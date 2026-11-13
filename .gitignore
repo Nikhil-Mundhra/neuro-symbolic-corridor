@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+.hypothesis/
+.coverage
 *.egg-info/
 
 # Node / Frontend
@@ -13,6 +15,7 @@ dist/
 
 # Go
 /services/gateway-go/gateway
+coverage.out
 
 # OS & Editor
 .DS_Store

@@ -78,5 +78,8 @@ def test_gnn_warmstart_nominal_vs_disrupted() -> None:
     assert "STRAIT_OF_HORMUZ" in disrupted.predicted_bottleneck_nodes
     assert "AEJEA" in disrupted.predicted_bottleneck_nodes
     assert "LONG_HAUL_REEFER_DECAY" in disrupted.predicted_bottleneck_nodes
-    assert disrupted.edge_risk_scores["E_INNSA_AEJEA_SEA"] > nominal.edge_risk_scores["E_INNSA_AEJEA_SEA"]
+    assert (
+        disrupted.edge_risk_scores["E_INNSA_AEJEA_SEA"]
+        > nominal.edge_risk_scores["E_INNSA_AEJEA_SEA"]
+    )
     assert disrupted.pruned_variables >= nominal.pruned_variables

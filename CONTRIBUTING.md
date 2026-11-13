@@ -24,9 +24,16 @@ This repository implements a tri-lingual, high-reliability Neuro-Symbolic Supply
 - **Stack**: React 19, TypeScript (`strict: true`), Vite, Deck.gl + MapLibre GL.
 - **Web Standards**: Semantic HTML (`<table>`, `<dialog>`, `<input type="range">`), CSS `color-scheme: light dark`, container-query responsive tables (`@container`), and zero `any` escape hatches.
 
-## 3. Local Development Commands
+## 3. Local Development & Guardrail Commands
 ```bash
-make setup   # Install Python, Go, and Node dependencies
-make test    # Run pytest, go test -race, and frontend tsc/vite build
-make dev     # Launch solver-py (:8001), gateway-go (:8080), and command-center (:5173)
+make setup              # Install Python (uv), Go, and Node dependencies
+make ci                 # Full 3-Stage CI Pipeline: lint + unit/property/contract/coverage + live cross-service E2E
+make lint               # Stage 1: Ruff lint/format, gofmt + go vet, and strict tsc --noEmit
+make test               # Stage 2: pytest (>=95% branch cov), go test -race, vitest, and vite build
+make test-py-property   # L1.5: Hypothesis property-based Z3/MILP mathematical invariant fuzzing
+make test-contracts     # L2: Tri-lingual (Python Pydantic <-> Go JSON <-> TypeScript) schema drift gate
+make test-sla           # L3: 45-run statistical P99 stage latency benchmark gate
+make test-e2e           # L4: Live Go Gateway <-> Python Solver E2E orchestration & <400ms P99 SLA gate
+make dev                # Launch solver-py (:8001), gateway-go (:8080), and command-center (:5173)
 ```
+See [`docs/TESTING_AND_CICD.md`](docs/TESTING_AND_CICD.md) for the complete **Granularity Framework** and **Execution Framework** specification.

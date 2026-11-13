@@ -11,7 +11,11 @@ from app.z3_compiler import compute_route_physics, verify_route_with_z3
 
 def test_compute_route_physics_and_z3_cepa_value_add_failure() -> None:
     edge_map = get_edge_map()
-    edges = [edge_map["E_INNSA_AEFJR_SEA"], edge_map["E_AEFJR_AEAUH_RAIL"], edge_map["E_AEAUH_EUFRA_AIR"]]
+    edges = [
+        edge_map["E_INNSA_AEFJR_SEA"],
+        edge_map["E_AEFJR_AEAUH_RAIL"],
+        edge_map["E_AEAUH_EUFRA_AIR"],
+    ]
 
     low_cepa_shipment = ShipmentSpec(
         bol_number="BOL-LOW-CEPA",
@@ -42,7 +46,11 @@ def test_compute_route_physics_and_z3_cepa_value_add_failure() -> None:
 
 def test_z3_allows_route_when_cepa_not_required() -> None:
     edge_map = get_edge_map()
-    edges = [edge_map["E_INNSA_AEFJR_SEA"], edge_map["E_AEFJR_AEAUH_RAIL"], edge_map["E_AEAUH_EUFRA_AIR"]]
+    edges = [
+        edge_map["E_INNSA_AEFJR_SEA"],
+        edge_map["E_AEFJR_AEAUH_RAIL"],
+        edge_map["E_AEAUH_EUFRA_AIR"],
+    ]
     shipment = get_scenarios()[1].shipment.model_copy(update={"cepa_value_add_pct": 20.0})
     disruption = DisruptionState(
         hormuz_delay_hours=0.0,

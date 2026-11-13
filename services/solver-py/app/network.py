@@ -341,7 +341,14 @@ CORRIDOR_EDGES: list[CorridorEdge] = [
         active_cold_chain=True,
         thermal_drift_c_per_hour=0.012,
         capacity_teu=1500,
-        waypoints=[[55.0273, 24.9857], [56.55, 26.25], [43.3, 12.6], [32.3, 31.2], [4.47, 51.92], [8.5622, 50.0379]],
+        waypoints=[
+            [55.0273, 24.9857],
+            [56.55, 26.25],
+            [43.3, 12.6],
+            [32.3, 31.2],
+            [4.47, 51.92],
+            [8.5622, 50.0379],
+        ],
     ),
     CorridorEdge(
         id="E_AEKHL_EUFRA_SEA",
@@ -357,7 +364,14 @@ CORRIDOR_EDGES: list[CorridorEdge] = [
         active_cold_chain=True,
         thermal_drift_c_per_hour=0.012,
         capacity_teu=1400,
-        waypoints=[[54.6775, 24.8058], [56.55, 26.25], [43.3, 12.6], [32.3, 31.2], [4.47, 51.92], [8.5622, 50.0379]],
+        waypoints=[
+            [54.6775, 24.8058],
+            [56.55, 26.25],
+            [43.3, 12.6],
+            [32.3, 31.2],
+            [4.47, 51.92],
+            [8.5622, 50.0379],
+        ],
     ),
     CorridorEdge(
         id="E_AEAUH_EUFRA_AIR",

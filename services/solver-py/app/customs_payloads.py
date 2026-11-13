@@ -62,7 +62,9 @@ def build_customs_payloads(
         "system": "Oman Royal Customs (Bayan) ↔ Dubai Customs Green Corridor",
         "corridor_program": "GCC_SEALED_TRUCK_ETIR",
         "activated": uses_green_corridor,
-        "border_gate": "AEWAJ_AL_WAJAJAH" if "AEWAJ" in optimal.node_sequence else "AEFJR_BONDED_RAIL",
+        "border_gate": "AEWAJ_AL_WAJAJAH"
+        if "AEWAJ" in optimal.node_sequence
+        else "AEFJR_BONDED_RAIL",
         "electronic_seal_id": f"ETIR-GCC-{solve_id[:8].upper()}",
         "continuous_customs_custody": True,
         "z3_verified_rules": [c.rule_id for c in z3_cert.checks if c.passed],
@@ -72,7 +74,9 @@ def build_customs_payloads(
     if uses_air:
         etihad_cargo = {
             "system": "Etihad Cargo Spot-Booking API (Zayed Int'l Airport - AUH)",
-            "product_tier": "PharmaLife Active 2-8C" if shipment.is_temp_sensitive else "SecureTech Priority",
+            "product_tier": "PharmaLife Active 2-8C"
+            if shipment.is_temp_sensitive
+            else "SecureTech Priority",
             "origin_airport": "AUH",
             "destination_airport": "FRA",
             "uld_allocation": f"{shipment.teu_count}x RKN Active Envirotainer"

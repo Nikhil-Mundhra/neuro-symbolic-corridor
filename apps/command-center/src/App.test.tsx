@@ -21,8 +21,12 @@ class MockEventSource {
 beforeEach(() => {
   vi.stubGlobal('EventSource', MockEventSource);
   vi.stubGlobal('CSS', { supports: () => true });
-  HTMLDialogElement.prototype.showModal = vi.fn();
-  HTMLDialogElement.prototype.close = vi.fn();
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  });
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.removeAttribute('open');
+  });
 
   const mockWorkflow = {
     workflow_id: 'wf-test123',
@@ -166,6 +170,208 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Approve & Dispatch Reroute/i }));
     await waitFor(() => {
       expect(screen.getByText(/Dispatched to Bonded Corridor/i)).toBeInTheDocument();
+    });
+  });
+
+  it('enforces Modern Web & A11y invariants: native <dialog closedby>, accessible table region, and slider/BoL interaction', async () => {
+    // Test CSS.supports('accent-color') === false progressive enhancement fallback
+    vi.stubGlobal('CSS', { supports: () => false });
+    const { container } = render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/wf-test123/i)).toBeInTheDocument();
+    });
+
+    // 1. Native <dialog> invariant (no custom role="dialog" div overlays)
+    const dialogEl = container.querySelector('dialog#customs-payload-dialog');
+    expect(dialogEl).not.toBeNull();
+    expect(dialogEl?.getAttribute('closedby')).toBe('any');
+    expect(dialogEl?.getAttribute('role')).toBeNull();
+
+    // 2. Switch between Z3 SMT-LIB2 and Customs JSON tabs inside dialog
+    fireEvent.click(screen.getByRole('button', { name: /Z3 SMT-LIB2 Proofs/i }));
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
+    const customsTabBtn = screen.getByRole('button', { name: /^Customs JSON$/i });
+    fireEvent.click(customsTabBtn);
+
+    // 3. Pointer light-dismiss fallback when closedBy is not on HTMLDialogElement.prototype
+    if (dialogEl) {
+      vi.spyOn(dialogEl, 'getBoundingClientRect').mockReturnValue({
+        left: 100,
+        right: 500,
+        top: 100,
+        bottom: 400,
+        width: 400,
+        height: 300,
+        x: 100,
+        y: 100,
+        toJSON: () => ({}),
+      });
+      const downEv = new Event('pointerdown', { bubbles: true });
+      Object.assign(downEv, { clientX: 10, clientY: 10 });
+      dialogEl.dispatchEvent(downEv);
+
+      const upEv = new Event('pointerup', { bubbles: true });
+      Object.assign(upEv, { clientX: 10, clientY: 10 });
+      dialogEl.dispatchEvent(upEv);
+
+      expect(HTMLDialogElement.prototype.close).toHaveBeenCalled();
+      fireEvent(dialogEl, new Event('close'));
+      dialogEl.removeAttribute('open');
+    }
+
+    // 4. Accessible scrollable table region with caption
+    const tableRegion = screen.getByRole('region', {
+      name: /Multimodal Corridor Candidates/i,
+    });
+    expect(tableRegion).toHaveAttribute('tabIndex', '0');
+
+    // 5. Disruption sliders, checkboxes, and Guided BoL Parse trigger re-solve
+    const hormuzSlider = screen.getByLabelText(/Strait of Hormuz Choke Delay/i);
+    fireEvent.change(hormuzSlider, { target: { value: '96' } });
+
+    const jebelSlider = screen.getByLabelText(/Jebel Ali Berth Congestion/i);
+    fireEvent.change(jebelSlider, { target: { value: '36' } });
+
+    const alphaSlider = screen.getByLabelText(/MILP Pareto Weight/i);
+    fireEvent.change(alphaSlider, { target: { value: '0.75' } });
+
+    const reeferCheckbox = screen.getByLabelText(/Inject Maritime Reefer Fault/i);
+    expect(reeferCheckbox).toHaveClass('visually-hidden');
+    fireEvent.click(reeferCheckbox);
+
+    const cepaCheckbox = screen.getByLabelText(/Enforce UAE-India CEPA/i);
+    fireEvent.click(cepaCheckbox);
+
+    // 6. Parse BoL & Re-Solve flow
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/parse-bol')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                shipment: FALLBACK_SCENARIOS[0].shipment,
+                extraction_confidence: 0.96,
+                extraction_ms: 0.4,
+                extracted_tokens: ['HS=>3002.15.00'],
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              workflow_id: 'wf-parsed999',
+              status: 'SOLVED',
+              created_at_utc: '2026-11-13T12:05:00Z',
+              total_pipeline_ms: 14.2,
+              retry_count: 0,
+              stage_latencies: [],
+              solution: {
+                solve_id: 's2',
+                solver_engine: 'SciPy-HiGHS MILP + Z3 4.13 SMT',
+                optimality_gap_pct: 0,
+                total_solver_ms: 12.1,
+                optimal_route: {
+                  route_id: 'ROUTE_FUJAIRAH_ETIHAD_AIR_BRIDGE',
+                  route_name: 'Fujairah Bypass',
+                  node_sequence: ['INNSA', 'AEFJR', 'AEAUH', 'EUFRA'],
+                  edge_ids: ['E_INNSA_AEFJR_SEA'],
+                  modes: ['SEA'],
+                  z3_status: 'SAT',
+                  z3_violation: null,
+                  total_hours: 92,
+                  freight_cost_usd: 27000,
+                  demurrage_cost_usd: 0,
+                  tariff_penalty_usd: 0,
+                  spoilage_exposure_usd: 0,
+                  total_economic_cost_usd: 27000,
+                  predicted_arrival_temp_c: 7.5,
+                  is_optimal: true,
+                  is_baseline: false,
+                },
+                candidates: [],
+                z3_certificates: [
+                  {
+                    route_id: 'ROUTE_SOHAR_UNBONDED_SPOT_TRAP',
+                    route_name: 'Unbonded Trap',
+                    edge_ids: [],
+                    status: 'UNSAT',
+                    checks: [
+                      {
+                        rule_id: 'GCC_CUSTOMS_ETIR_SEAL',
+                        law_reference: 'Art 98',
+                        passed: false,
+                        detail: 'VIOLATION',
+                      },
+                    ],
+                    smtlib_excerpt: '(assert false)',
+                    violation_summary: 'VIOLATION: Unbonded spot transit',
+                  },
+                ],
+                gnn_warmstart: {
+                  model_architecture: 'Temporal-GATv2',
+                  fleet_scale_variables: 2400,
+                  pruned_variables: 1800,
+                  prune_ratio_pct: 75,
+                  predicted_bottleneck_nodes: ['STRAIT_OF_HORMUZ'],
+                  edge_risk_scores: {},
+                },
+                pareto_frontier: [],
+                unit_economics: {
+                  baseline_route_name: 'Baseline',
+                  baseline_total_cost_usd: 1877000,
+                  baseline_hours: 528,
+                  optimal_route_name: 'Fujairah',
+                  optimal_total_cost_usd: 27000,
+                  optimal_hours: 92,
+                  net_savings_usd: 1850000,
+                  net_savings_aed: 6794125,
+                  demurrage_prevented_usd: 4480,
+                  spoilage_prevented_usd: 1850000,
+                  hours_saved: 436,
+                  clearinghouse_take_rate_pct: 12,
+                  platform_fee_usd: 222000,
+                  platform_fee_aed: 815295,
+                },
+                stage_latencies: [],
+                customs_payloads: {
+                  dubai_trade_mirsal2: {},
+                  maqta_gateway_atlp: {},
+                  oman_green_corridor_etir: {},
+                  etihad_cargo_eawb: null,
+                },
+              },
+            }),
+            { status: 200 }
+          )
+        );
+      })
+    );
+
+    const bolTextarea = screen.getByLabelText(/Guided Bill of Lading Ingestion/i);
+    fireEvent.change(bolTextarea, { target: { value: 'BILL OF LADING: BOL-NEW-101' } });
+    const parseBtn = screen.getByRole('button', { name: /Parse BoL & Re-Solve/i });
+    await waitFor(() => {
+      expect(parseBtn).not.toBeDisabled();
+    });
+    fireEvent.click(parseBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/wf-parsed999/i)).toBeInTheDocument();
+    });
+  });
+
+  it('displays accessible alert banner when gateway returns an error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('Bad Gateway', { status: 502 })))
+    );
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/Gateway returned 502/i);
     });
   });
 });
