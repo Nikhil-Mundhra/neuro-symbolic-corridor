@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# Go
+/services/gateway-go/gateway
+
+# OS & Editor
+.DS_Store
+*.log

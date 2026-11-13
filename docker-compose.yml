@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: corridor
+      POSTGRES_PASSWORD: corridor_dev_password
+      POSTGRES_DB: corridor
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U corridor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  solver-py:
+    build:
+      context: ./services/solver-py
+    ports:
+      - "8001:8001"
+    environment:
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  gateway-go:
+    build:
+      context: ./services/gateway-go
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      SOLVER_URL: "http://solver-py:8001"
+    depends_on:
+      solver-py:
+        condition: service_healthy
+
+  command-center:
+    build:
+      context: ./apps/command-center
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_GATEWAY_URL: "http://localhost:8080"
+    depends_on:
+      - gateway-go

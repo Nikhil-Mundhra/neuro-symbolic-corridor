@@ -1,0 +1,165 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+)
+
+// WorkflowStatus represents the deterministic Temporal-style execution state.
+type WorkflowStatus string
+
+const (
+	StatusPending    WorkflowStatus = "PENDING"
+	StatusSolved     WorkflowStatus = "SOLVED"
+	StatusDispatched WorkflowStatus = "DISPATCHED_BONDED_CORRIDOR"
+	StatusFailed     WorkflowStatus = "FAILED"
+)
+
+type StageTelemetry struct {
+	Stage      string  `json:"stage"`
+	Component  string  `json:"component"`
+	DurationMs float64 `json:"duration_ms"`
+	Status     string  `json:"status"`
+}
+
+type ApprovalReceipt struct {
+	ApprovedBy      string   `json:"approved_by"`
+	ApprovedAtUTC   string   `json:"approved_at_utc"`
+	TransactionHash string   `json:"transaction_hash"`
+	DispatchedAPIs  []string `json:"dispatched_apis"`
+	ETIRSealID      string   `json:"etir_seal_id"`
+}
+
+type WorkflowRun struct {
+	WorkflowID      string           `json:"workflow_id"`
+	Status          WorkflowStatus   `json:"status"`
+	CreatedAtUTC    string           `json:"created_at_utc"`
+	TotalPipelineMs float64          `json:"total_pipeline_ms"`
+	RetryCount      int              `json:"retry_count"`
+	StageLatencies  []StageTelemetry `json:"stage_latencies"`
+	Solution        json.RawMessage  `json:"solution"`
+	ApprovalReceipt *ApprovalReceipt `json:"approval_receipt,omitempty"`
+}
+
+// WorkflowStore provides thread-safe durable state management and SSE fan-out.
+type WorkflowStore struct {
+	mu          sync.RWMutex
+	workflows   map[string]*WorkflowRun
+	order       []string
+	subscribers map[chan []byte]struct{}
+}
+
+func NewWorkflowStore() *WorkflowStore {
+	return &WorkflowStore{
+		workflows:   make(map[string]*WorkflowRun),
+		order:       make([]string, 0, 64),
+		subscribers: make(map[chan []byte]struct{}),
+	}
+}
+
+func (s *WorkflowStore) SaveSolved(run *WorkflowRun) {
+	s.mu.Lock()
+	if _, exists := s.workflows[run.WorkflowID]; !exists {
+		s.order = append(s.order, run.WorkflowID)
+	}
+	s.workflows[run.WorkflowID] = run
+	s.mu.Unlock()
+	s.broadcast(run)
+}
+
+func (s *WorkflowStore) ListRecent(limit int) []*WorkflowRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if limit <= 0 || limit > len(s.order) {
+		limit = len(s.order)
+	}
+	res := make([]*WorkflowRun, 0, limit)
+	for i := len(s.order) - 1; i >= 0 && len(res) < limit; i-- {
+		if wf, ok := s.workflows[s.order[i]]; ok {
+			res = append(res, wf)
+		}
+	}
+	return res
+}
+
+func (s *WorkflowStore) ApproveAndDispatch(workflowID, operator string) (*WorkflowRun, error) {
+	s.mu.Lock()
+	wf, ok := s.workflows[workflowID]
+	if !ok {
+		s.mu.Unlock()
+		return nil, errors.New("workflow not found")
+	}
+	if wf.Status == StatusDispatched && wf.ApprovalReceipt != nil {
+		// Idempotent replay: return existing deterministic receipt
+		s.mu.Unlock()
+		return wf, nil
+	}
+	if wf.Status != StatusSolved {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("cannot approve workflow in status %s", wf.Status)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	hashBytes := sha256.Sum256([]byte(workflowID + "|" + operator + "|" + now))
+	txHash := "0x" + hex.EncodeToString(hashBytes[:16])
+
+	wf.Status = StatusDispatched
+	wf.ApprovalReceipt = &ApprovalReceipt{
+		ApprovedBy:      operator,
+		ApprovedAtUTC:   now,
+		TransactionHash: txHash,
+		DispatchedAPIs: []string{
+			"Dubai Trade / Mirsal 2 Transit Bond",
+			"Maqta Gateway ATLP Manifest",
+			"Oman Bayan ↔ Dubai Customs Green Corridor e-TIR",
+			"Etihad Cargo Spot e-AWB Reservation",
+		},
+		ETIRSealID: fmt.Sprintf("ETIR-GCC-%s", workflowID),
+	}
+	s.mu.Unlock()
+
+	s.broadcast(wf)
+	return wf, nil
+}
+
+func (s *WorkflowStore) Subscribe() chan []byte {
+	ch := make(chan []byte, 16)
+	s.mu.Lock()
+	s.subscribers[ch] = struct{}{}
+	s.mu.Unlock()
+	return ch
+}
+
+func (s *WorkflowStore) Unsubscribe(ch chan []byte) {
+	s.mu.Lock()
+	delete(s.subscribers, ch)
+	close(ch)
+	s.mu.Unlock()
+}
+
+func (s *WorkflowStore) broadcast(run *WorkflowRun) {
+	payload, err := json.Marshal(map[string]any{
+		"event":       "workflow_update",
+		"workflow_id": run.WorkflowID,
+		"status":      run.Status,
+		"timestamp":   time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return
+	}
+
+	s.mu.RLock()
+	for ch := range s.subscribers {
+		select {
+		case ch <- payload:
+		default:
+		}
+	}
+	s.mu.RUnlock()
+}
