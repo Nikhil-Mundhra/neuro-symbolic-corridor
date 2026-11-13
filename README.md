@@ -4,6 +4,20 @@
 
 Built for the **Nov 17 BTI Startup Expo**, **Dec 11 NYUADEIP Priority Deadline**, and the **2027 startAD / Hub71** roadmap.
 
+## Executive Summary
+
+### The Problem
+Every year, billions of dollars in trade moving between **India, the UAE, Oman, and Europe** are delayed by maritime choke points in the Strait of Hormuz and Red Sea, port berth congestion, and cold-chain failures. When a ship is delayed or a refrigerated container malfunctions, freight forwarders lose **\$150–\$300 per container per day** in port demurrage fees—or risk losing **100% of high-value pharmaceutical cargo** to spoilage. Existing logistics software only *shows* that a shipment is late; it cannot automatically re-route cargo across sea, land, and air while guaranteeing customs compliance.
+
+### Our Solution
+The **Neuro-Symbolic Corridor Solver** is an autonomous decision and customs-execution engine for GCC freight forwarders, ports, and air cargo carriers:
+- **Instant Multi-Modal Rerouting:** When a disruption hits (e.g., a 72-hour delay at the Strait of Hormuz), our engine shifts cargo in real time—for example, offloading at **Fujairah** or **Oman (Sohar/Salalah)** onto **Oman–UAE Sealed-Truck "Green Corridor"** lanes or **Etihad Rail**, and connecting to **Etihad Cargo** at Zayed International Airport.
+- **Zero Customs Mistakes:** Unlike generic AI chatbots that can invent tariff rules, every route is mathematically checked against **GCC Unified Customs Law**, **UAE–India CEPA (0% duty) rules of origin**, and **2°C–8°C pharmaceutical cold-chain limits** before it is ever shown to a dispatcher.
+- **1-Click Execution:** Dispatchers see the exact dollar and dirham savings side-by-side and approve the reroute in one click, automatically generating ready-to-submit customs and booking payloads for **Dubai Trade**, **Maqta Gateway**, **Oman Bayan**, and **Etihad Cargo**.
+
+### Business Model
+We pair a base platform license with an **Autonomous Clearinghouse take-rate (10–15%)** on every dirham of port demurrage, detention, and cold-chain spoilage our engine mathematically prevents.
+
 ## Why Neuro-Symbolic?
 Standard logistics dashboards only report delays after containers miss berths. Pure LLM wrappers hallucinate Harmonized System (HS) tariff codes and UAE–India CEPA rules of origin. Traditional MILP solvers choke when graph nodes scale across thousands of containers.
 
@@ -49,6 +63,7 @@ docker compose up --build
 
 ## Documentation
 - [System Architecture & Mathematical Formulation](docs/ARCHITECTURE.md)
+- [Testing & CI/CD Guardrails](docs/TESTING_AND_CICD.md)
 - [Phased Product Roadmap (Nov 2026 – Q4 2027)](docs/ROADMAP.md)
 - [SWE Standards & Contributing](CONTRIBUTING.md)
 - [Agent & Verification Rules](AGENTS.md)
