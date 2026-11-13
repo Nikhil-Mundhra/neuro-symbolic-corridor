@@ -5,13 +5,16 @@ setup:
 	cd services/gateway-go && go mod tidy
 	cd apps/command-center && npm install
 
-test: test-py test-go build-ui
+test: test-py test-go test-ui build-ui
 
 test-py:
 	cd services/solver-py && .venv/bin/pytest -v
 
 test-go:
 	cd services/gateway-go && go vet ./... && go test -race -v ./...
+
+test-ui:
+	cd apps/command-center && npm test
 
 build-ui:
 	cd apps/command-center && npm run build
