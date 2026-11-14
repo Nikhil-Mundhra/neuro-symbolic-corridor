@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 48" width="280" height="48" fill="none">
+  <!-- Brand Emblem (Embedded at 0, 0) -->
+  <g transform="translate(0, 0)">
+    <rect width="48" height="48" rx="10" fill="#04091e"/>
+    <rect x="0.5" y="0.5" width="47" height="47" rx="9.5" stroke="rgba(255,255,255,0.1)"/>
+    
+    <!-- Neural Vector -->
+    <path d="M 11 20 C 11 14.48 15.48 10 21 10 L 26 10 L 26 16.5 L 22 16.5 C 19.51 16.5 17.5 18.51 17.5 21 L 17.5 32 L 11 38.5 Z"
+          fill="#38bdf8"/>
+          
+    <!-- Symbolic Vector -->
+    <path d="M 37 28 L 37 38 L 27 38 L 22 33 L 26 33 L 30.5 33 L 30.5 21.5 L 37 15 Z"
+          fill="#2563eb"/>
+          
+    <!-- Invariant Seal -->
+    <path d="M 24 20.8 L 27.2 24 L 24 27.2 L 20.8 24 Z"
+          fill="#00f0ff"/>
+  </g>
+
+  <!-- Typography: Strict Grotesk Hierarchy -->
+  <g transform="translate(62, 0)">
+    <!-- Micro-Eyebrow Category -->
+    <text x="0" y="16" fill="#94a3b8" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" font-weight="700" letter-spacing="1.5">NEURO · SYMBOLIC</text>
+    
+    <!-- Primary Product Wordmark -->
+    <text x="0" y="34" fill="#ffffff" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="800" letter-spacing="-0.3">CORRIDOR</text>
+    
+    <!-- Certified Invariant Pill Badge -->
+    <rect x="96" y="23" width="76" height="15" rx="3" fill="rgba(56, 189, 248, 0.12)" stroke="rgba(56, 189, 248, 0.28)"/>
+    <text x="101" y="33.5" fill="#38bdf8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="7.5" font-weight="700" letter-spacing="0.5">Z3 VERIFIED</text>
+  </g>
+</svg>
