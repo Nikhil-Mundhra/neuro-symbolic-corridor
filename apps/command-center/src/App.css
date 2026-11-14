@@ -970,10 +970,9 @@ input[type='range'] {
 
 .choke-badge-text {
   fill: var(--danger-soft);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 8px;
   font-weight: 700;
-  letter-spacing: 0.03em;
 }
 
 .corridor-node {
@@ -1595,7 +1594,6 @@ dialog.customs-dialog {
   width: min(880px, 94vw);
   max-height: 86vh;
   padding: 0;
-  box-shadow: 0 24px 60px var(--shadow-ambient);
 }
 
 dialog.customs-dialog[open] {
@@ -2530,6 +2528,7 @@ dialog.customs-dialog::backdrop {
 .ds-console-band {
   padding: 2.5rem 0 3.2rem;
   background: var(--surface-studio-card);
+  color: var(--ink-paper);
   border-top: 1px solid color-mix(in oklch, var(--brand-cyan-vivid) 16%, transparent);
   border-bottom: 1px solid color-mix(in oklch, var(--brand-cyan-vivid) 16%, transparent);
 }
