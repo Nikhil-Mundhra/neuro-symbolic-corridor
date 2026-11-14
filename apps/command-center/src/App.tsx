@@ -49,7 +49,30 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [sseConnected, setSseConnected] = useState<boolean>(false);
   const [modalTab, setModalTab] = useState<'customs' | 'z3'>('customs');
-  const [viewMode, setViewMode] = useState<HomepageViewMode>('full');
+  const [viewMode, setViewMode] = useState<HomepageViewMode>(() =>
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/twin')
+      ? 'console'
+      : 'full'
+  );
+
+  const handleToggleViewMode = useCallback((mode: HomepageViewMode) => {
+    setViewMode(mode);
+    if (typeof window !== 'undefined') {
+      const targetPath = mode === 'console' ? '/twin' : '/';
+      if (window.location.pathname !== targetPath) {
+        window.history?.pushState?.({}, '', targetPath);
+      }
+      window.scrollTo?.(0, 0);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setViewMode(window.location.pathname.startsWith('/twin') ? 'console' : 'full');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const hormuzSliderRef = useRef<HTMLInputElement | null>(null);
@@ -274,7 +297,7 @@ export default function App() {
     <CorridorHomepage
       scenarios={scenarios}
       viewMode={viewMode}
-      onToggleViewMode={setViewMode}
+      onToggleViewMode={handleToggleViewMode}
       onLoadScenario={handleSelectScenario}
     >
       <div className="app-shell">
@@ -610,6 +633,37 @@ export default function App() {
             hormuzDelayHours={disruption.hormuz_delay_hours}
             jebelAliDelayHours={disruption.jebel_ali_congestion_hours}
           />
+
+          {!solution && (
+            <div className="panel standby-panel" aria-live="polite">
+              <div className="standby-head">
+                <strong>Solver Verification Standby</strong>
+                <span className="badge unsat">Awaiting Z3 Proof</span>
+              </div>
+              <p className="standby-desc">
+                Active shipment constraints are locked for formal QF_LRA and HiGHS MILP evaluation
+                across {topology.nodes.length} corridor hubs.
+              </p>
+              <dl className="standby-specs tabular">
+                <div>
+                  <dt>Bill of Lading</dt>
+                  <dd className="mono">{shipment.bol_number}</dd>
+                </div>
+                <div>
+                  <dt>Thermal Ceiling</dt>
+                  <dd>{shipment.max_temp_c.toFixed(1)} °C</dd>
+                </div>
+                <div>
+                  <dt>Transit SLA</dt>
+                  <dd>{shipment.max_transit_hours.toFixed(0)} h</dd>
+                </div>
+                <div>
+                  <dt>CEPA Origin</dt>
+                  <dd>{shipment.cepa_value_add_pct.toFixed(0)}%</dd>
+                </div>
+              </dl>
+            </div>
+          )}
 
           {solution && workflow && (
             <div className="panel">

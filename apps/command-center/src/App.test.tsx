@@ -13,8 +13,10 @@ class MockEventSource {
 }
 
 beforeEach(() => {
+  window.history.pushState({}, '', '/twin');
   vi.stubGlobal('EventSource', MockEventSource);
   vi.stubGlobal('CSS', { supports: () => true });
+  vi.stubGlobal('scrollTo', vi.fn());
   HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
     this.setAttribute('open', '');
   });
@@ -443,12 +445,10 @@ describe('App', () => {
       })
     );
 
+    window.history.pushState({}, '', '/');
     const { container } = render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
-
+    expect(container.querySelector('#live-command-center')).toBeNull();
     expect(screen.getByText('Corridor Studio.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: /Unmatched/i })).toBeInTheDocument();
 
@@ -472,9 +472,14 @@ describe('App', () => {
     expect(consoleToggle).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(consoleToggle);
 
+    expect(window.location.pathname).toBe('/twin');
+    expect(container.querySelector('#live-command-center')).not.toBeNull();
+    expect(container.querySelector('.ds-hero')).toBeNull();
+
     const fullToggle = screen.getByRole('button', { name: 'Full Experience' });
     expect(fullToggle).toHaveAttribute('aria-pressed', 'true');
-    const heroSection = container.querySelector('.ds-hero');
-    expect(heroSection).toHaveClass('ds-marketing-hidden');
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
   });
 });
