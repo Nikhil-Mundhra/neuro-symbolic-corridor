@@ -5,12 +5,6 @@ import { FALLBACK_SCENARIOS, FALLBACK_TOPOLOGY } from './data/fallbackData';
 import { CorridorMap } from './components/CorridorMap';
 import App from './App';
 
-// Mock DeckGL WebGL canvas for jsdom
-vi.mock('@deck.gl/react', () => ({
-  default: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="mock-deckgl">{children}</div>
-  ),
-}));
 
 class MockEventSource {
   addEventListener = vi.fn();
@@ -138,20 +132,42 @@ describe('fallbackData', () => {
 });
 
 describe('CorridorMap', () => {
-  it('renders DeckGL stage and switches view mode buttons', () => {
-    render(
+  it('renders Natural Earth + Tile SVG map, hub callouts, basemap switcher, and schematic toggle', () => {
+    const { container } = render(
       <CorridorMap
         nodes={FALLBACK_TOPOLOGY.nodes}
-        edges={[]}
+        edges={FALLBACK_TOPOLOGY.edges}
         solution={null}
         hormuzDelayHours={72}
         jebelAliDelayHours={24}
       />
     );
-    expect(screen.getByTestId('mock-deckgl')).toBeInTheDocument();
+
+    expect(screen.getByTestId('corridor-svg-map')).toBeInTheDocument();
+    expect(container.querySelectorAll('path.geo-land-fill').length).toBeGreaterThan(20);
+
+    // Clicking hub node opens zone inspector card
+    const fujairahHub = container.querySelector('[data-node-id="AEFJR"]');
+    expect(fujairahHub).not.toBeNull();
+    if (fujairahHub) fireEvent.click(fujairahHub);
+    expect(screen.getByText(/AEFJR ·/i)).toBeInTheDocument();
+
+    // Switching basemap provider to pure offline Natural Earth vector mode
+    const basemapSelect = screen.getByLabelText(/Tile Basemap Provider/i);
+    fireEvent.change(basemapSelect, { target: { value: 'vector' } });
+    expect(screen.getByText(/Natural Earth 50m\/110m Vector Geography/i)).toBeInTheDocument();
+
+    // Switching to LLM-inspectable Schematic Graph mode
+    const schematicBtn = screen.getByRole('button', { name: /Schematic Graph/i });
+    fireEvent.click(schematicBtn);
+    expect(screen.getByTestId('corridor-schematic-view')).toBeInTheDocument();
+    expect(screen.getByText(/Hormuz Bypass vs Direct/i)).toBeInTheDocument();
+
+    // Switching region preset returns to Geographic Map view and activates button
     const eurasiaBtn = screen.getByRole('button', { name: /India → UAE → EU Corridor/i });
     fireEvent.click(eurasiaBtn);
     expect(eurasiaBtn).toHaveClass('active');
+    expect(screen.getByTestId('corridor-svg-map')).toBeInTheDocument();
   });
 });
 
@@ -162,7 +178,7 @@ describe('App', () => {
       expect(screen.getByText(/wf-test123/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/\$1,850,000/)).toBeInTheDocument();
+    expect(screen.getByText(/^\$1,850,000$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Inspect Customs JSON/i }));
     expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
@@ -351,6 +367,7 @@ describe('App', () => {
       })
     );
 
+    fireEvent.click(screen.getByText(/^Bill of Lading Ingestion/i));
     const bolTextarea = screen.getByLabelText(/Guided Bill of Lading Ingestion/i);
     fireEvent.change(bolTextarea, { target: { value: 'BILL OF LADING: BOL-NEW-101' } });
     const parseBtn = screen.getByRole('button', { name: /Parse BoL & Re-Solve/i });
@@ -361,6 +378,40 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/wf-parsed999/i)).toBeInTheDocument();
+    });
+
+    // 7. Secondary enterprise disclosures keep diagnostics hidden until expanded
+    const diagSummary = screen.getByText(/Solver & Pipeline Diagnostics/i);
+    fireEvent.click(diagSummary);
+    expect(screen.getByText(/Temporal-GATv2/i)).toBeInTheDocument();
+  });
+
+  it('displays Z3 infeasibility alert when all corridor routes fail constraints', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/corridor/topology')) {
+          return Promise.resolve(new Response(JSON.stringify(FALLBACK_TOPOLOGY), { status: 200 }));
+        }
+        if (url.includes('/scenarios')) {
+          return Promise.resolve(new Response(JSON.stringify(FALLBACK_SCENARIOS), { status: 200 }));
+        }
+        if (url.includes('/solve')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ detail: 'No feasible route satisfies 2°C ceiling at 120h Hormuz choke' }),
+              { status: 422 }
+            )
+          );
+        }
+        return Promise.resolve(new Response('{}', { status: 404 }));
+      })
+    );
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Z3 Regulatory \/ SLA Infeasibility: No feasible route/i
+      );
     });
   });
 
@@ -373,5 +424,57 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(/Gateway returned 502/i);
     });
+  });
+
+  it('renders Corridor Studio homepage UI/UX with lazy stock videos, interactive capability tabs, and Console Only toggle', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/corridor/topology')) {
+          return Promise.resolve(new Response(JSON.stringify(FALLBACK_TOPOLOGY), { status: 200 }));
+        }
+        if (url.includes('/scenarios')) {
+          return Promise.resolve(new Response(JSON.stringify(FALLBACK_SCENARIOS), { status: 200 }));
+        }
+        if (url.includes('/solve')) {
+          return Promise.resolve(new Response('{}', { status: 404 }));
+        }
+        return Promise.resolve(new Response('{}', { status: 404 }));
+      })
+    );
+
+    const { container } = render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Corridor Studio.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Unmatched/i })).toBeInTheDocument();
+
+    const tablist = screen.getByRole('tablist', { name: 'Engine capability selector' });
+    expect(tablist).toBeInTheDocument();
+    const prunerTab = screen.getByRole('tab', { name: '02. PyG Graph Warm-Start Pruner' });
+    fireEvent.click(prunerTab);
+    expect(prunerTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('0.17 ms Variable Pruning')).toBeInTheDocument();
+
+    const videos = Array.from(container.querySelectorAll('video'));
+    expect(videos).toHaveLength(3);
+    for (const video of videos) {
+      expect(video.getAttribute('loading')).toBe('lazy');
+      expect(video.getAttribute('preload')).toBe('none');
+      expect(Number(video.getAttribute('width'))).toBeGreaterThan(0);
+      expect(Number(video.getAttribute('height'))).toBeGreaterThan(0);
+    }
+
+    const consoleToggle = screen.getByRole('button', { name: 'Console Only' });
+    expect(consoleToggle).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(consoleToggle);
+
+    const fullToggle = screen.getByRole('button', { name: 'Full Experience' });
+    expect(fullToggle).toHaveAttribute('aria-pressed', 'true');
+    const heroSection = container.querySelector('.ds-hero');
+    expect(heroSection).toHaveClass('ds-marketing-hidden');
   });
 });

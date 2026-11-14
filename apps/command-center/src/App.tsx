@@ -5,13 +5,12 @@ import {
   CheckCircle2,
   Cpu,
   FileJson,
-  Layers,
   Play,
   ShieldCheck,
-  Sparkles,
-  Zap,
 } from 'lucide-react';
 import { CorridorMap } from './components/CorridorMap';
+import { CorridorHomepage, type HomepageViewMode } from './components/CorridorHomepage';
+import { CorridorBrandMark } from './components/CorridorBrandMark';
 import { FALLBACK_SCENARIOS, FALLBACK_TOPOLOGY } from './data/fallbackData';
 import type {
   CorridorTopology,
@@ -50,6 +49,7 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [sseConnected, setSseConnected] = useState<boolean>(false);
   const [modalTab, setModalTab] = useState<'customs' | 'z3'>('customs');
+  const [viewMode, setViewMode] = useState<HomepageViewMode>('full');
 
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const hormuzSliderRef = useRef<HTMLInputElement | null>(null);
@@ -69,7 +69,12 @@ export default function App() {
     syncSliderProgress(hormuzSliderRef.current, disruption.hormuz_delay_hours, 0, 120);
     syncSliderProgress(jebelSliderRef.current, disruption.jebel_ali_congestion_hours, 0, 72);
     syncSliderProgress(alphaSliderRef.current, paretoAlpha, 0, 1);
-  }, [disruption.hormuz_delay_hours, disruption.jebel_ali_congestion_hours, paretoAlpha, syncSliderProgress]);
+  }, [
+    disruption.hormuz_delay_hours,
+    disruption.jebel_ali_congestion_hours,
+    paretoAlpha,
+    syncSliderProgress,
+  ]);
 
   const runSolve = useCallback(
     async (spec: ShipmentSpec, dis: DisruptionState, alpha: number) => {
@@ -117,8 +122,10 @@ export default function App() {
           fetch('/api/v1/scenarios'),
         ]);
         if (topoRes.ok) {
-          const topoData = (await topoRes.json()) as CorridorTopology;
-          if (!cancelled) setTopology(topoData);
+          const topoData = (await topoRes.json()) as Partial<CorridorTopology>;
+          if (!cancelled && Array.isArray(topoData.nodes) && Array.isArray(topoData.edges)) {
+            setTopology({ nodes: topoData.nodes, edges: topoData.edges });
+          }
         }
         if (scenRes.ok) {
           const scenData = (await scenRes.json()) as ScenarioPreset[];
@@ -264,39 +271,48 @@ export default function App() {
   const usesAccentFallback = typeof CSS !== 'undefined' && !CSS.supports('accent-color', '#000');
 
   return (
-    <div className="app-shell">
+    <CorridorHomepage
+      scenarios={scenarios}
+      viewMode={viewMode}
+      onToggleViewMode={setViewMode}
+      onLoadScenario={handleSelectScenario}
+    >
+      <div className="app-shell">
       <header className="topbar">
         <div className="brand-block">
           <h1>
-            <ShieldCheck size={22} />
-            Neuro-Symbolic Gulf Corridor Solver
+            <CorridorBrandMark size={20} />
+            Gulf Corridor Dispatch
           </h1>
-          <p className="brand-subtitle">
-            India (JNPT) → Oman Green Corridor (Salalah/Sohar) → UAE (Fujairah / KIZAD / JAFZA / AUH) → Europe
+          <span className="brand-divider" aria-hidden="true">
+            |
+          </span>
+          <p className="brand-subtitle tabular">
+            <span>{shipment.bol_number}</span>
+            <span>{shipment.teu_count} TEU</span>
+            <span>HS {shipment.hs_code}</span>
+            <span>
+              {shipment.origin_node} → {shipment.destination_node}
+            </span>
           </p>
         </div>
 
         <div className="status-cluster">
           <span className={`pill ${sseConnected ? 'ok' : 'warn'}`}>
-            <Activity size={14} />
-            {sseConnected ? 'Go Gateway SSE Live' : 'Polling / Connecting'}
+            <Activity size={13} />
+            {sseConnected ? 'SSE Live' : 'Connecting'}
           </span>
           {workflow && (
-            <span className="pill ok mono">
-              <Zap size={14} />
-              {workflow.total_pipeline_ms.toFixed(1)} ms E2E
-            </span>
-          )}
-          {workflow && (
-            <span className="pill mono">
-              WF: {workflow.workflow_id} ({workflow.status})
+            <span className="pill tabular">
+              {workflow.total_pipeline_ms.toFixed(1)} ms E2E · {workflow.workflow_id} (
+              {workflow.status})
             </span>
           )}
         </div>
       </header>
 
       {errorMsg && (
-        <div className="dispatch-banner" role="alert">
+        <div className="dispatch-banner error-banner" role="alert">
           <AlertTriangle size={15} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
           {errorMsg.startsWith('No feasible route') ? (
             <>
@@ -311,59 +327,38 @@ export default function App() {
         </div>
       )}
 
-      {workflow && (
-        <section className="telemetry-strip" aria-label="Sub-400ms Neuro-Symbolic Pipeline Telemetry">
-          {workflow.stage_latencies.map((st) => (
-            <div className="stage-card" key={st.stage}>
-              <div className="stage-name">{st.stage}</div>
-              <div className="stage-meta">
-                <span>{st.component}</span>
-                <span className="stage-ms">{st.duration_ms.toFixed(2)} ms</span>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
       <main className="main-grid">
-        <aside className="panel" aria-label="Disruption & Bill of Lading Controls">
-          <div className="panel-header">
-            <h2>
-              <Sparkles size={16} /> Corridor Scenario Presets
-            </h2>
-          </div>
-
-          <div className="scenario-tabs">
-            {scenarios.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`scenario-btn ${activeScenarioId === preset.id ? 'active' : ''}`}
-                onClick={() => handleSelectScenario(preset)}
-              >
-                <strong>{preset.title}</strong>
-                <span>{preset.subtitle}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="panel-header">
-            <h2>
-              <AlertTriangle size={16} /> Live Disruption Injection
-            </h2>
-          </div>
+        <aside className="panel sidebar-panel" aria-label="Disruption & Bill of Lading Controls">
+          <section className="sidebar-section">
+            <h2 className="section-label">Corridor Scenarios</h2>
+            <div className="scenario-tabs">
+              {scenarios.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`scenario-btn ${activeScenarioId === preset.id ? 'active' : ''}`}
+                  onClick={() => handleSelectScenario(preset)}
+                >
+                  <strong>{preset.title}</strong>
+                  <span className="tabular">{preset.subtitle}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
           <form
+            className="sidebar-section"
             onSubmit={(e) => {
               e.preventDefault();
               void runSolve(shipment, disruption, paretoAlpha);
             }}
-            style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}
           >
+            <h2 className="section-label">Disruption &amp; Constraints</h2>
+
             <div className="control-group">
               <div className="control-row">
                 <label htmlFor="hormuz-delay">Strait of Hormuz Choke Delay</label>
-                <span className="mono">{disruption.hormuz_delay_hours} h</span>
+                <span className="mono tabular">{disruption.hormuz_delay_hours} h</span>
               </div>
               <input
                 ref={hormuzSliderRef}
@@ -384,7 +379,7 @@ export default function App() {
             <div className="control-group">
               <div className="control-row">
                 <label htmlFor="jebel-delay">Jebel Ali Berth Congestion</label>
-                <span className="mono">{disruption.jebel_ali_congestion_hours} h</span>
+                <span className="mono tabular">{disruption.jebel_ali_congestion_hours} h</span>
               </div>
               <input
                 ref={jebelSliderRef}
@@ -408,7 +403,7 @@ export default function App() {
             <div className="control-group">
               <div className="control-row">
                 <label htmlFor="pareto-alpha">MILP Pareto Weight (Speed ↔ Cost)</label>
-                <span className="mono">α = {paretoAlpha.toFixed(2)}</span>
+                <span className="mono tabular">α = {paretoAlpha.toFixed(2)}</span>
               </div>
               <input
                 ref={alphaSliderRef}
@@ -460,99 +455,59 @@ export default function App() {
               <span>Enforce UAE-India CEPA 0% Duty Proof (Z3)</span>
             </label>
 
-            <div className="control-group">
-              <label htmlFor="bol-input" className="control-row">
-                <span>Guided Bill of Lading Ingestion</span>
-                <span className="mono">{shipment.hs_code}</span>
-              </label>
-              <textarea
-                id="bol-input"
-                className="bol-textarea"
-                value={rawBolText}
-                onChange={(e) => setRawBolText(e.target.value)}
-              />
-            </div>
+            <details className="control-disclosure">
+              <summary>Bill of Lading Ingestion ({shipment.hs_code})</summary>
+              <div className="disclosure-body">
+                <div className="control-group">
+                  <label htmlFor="bol-input" className="control-row">
+                    <span>Guided Bill of Lading Ingestion</span>
+                    <span className="mono tabular">{shipment.hs_code}</span>
+                  </label>
+                  <textarea
+                    id="bol-input"
+                    className="bol-textarea"
+                    value={rawBolText}
+                    onChange={(e) => setRawBolText(e.target.value)}
+                  />
+                </div>
 
-            <div className="btn-row">
-              <button
-                type="button"
-                className="btn secondary"
-                disabled={solving}
-                onClick={() => void handleParseAndSolve()}
-              >
-                <Cpu size={14} /> Parse BoL &amp; Re-Solve
-              </button>
-              <button type="submit" className="btn primary" disabled={solving}>
-                <Play size={14} /> {solving ? 'Solving…' : 'Run Z3 + MILP'}
-              </button>
-            </div>
+                <div className="btn-row">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={solving}
+                    onClick={() => void handleParseAndSolve()}
+                  >
+                    <Cpu size={14} /> Parse BoL &amp; Re-Solve
+                  </button>
+                  <button type="submit" className="btn primary" disabled={solving}>
+                    <Play size={14} /> {solving ? 'Solving…' : 'Run Z3 + MILP'}
+                  </button>
+                </div>
+              </div>
+            </details>
           </form>
         </aside>
 
         <section className="right-column">
-          {solution && (
-            <div className="kpi-grid">
-              <div className="kpi-card">
-                <div className="kpi-label">Shadow-Mode Net Savings</div>
-                <div className="kpi-value savings">
-                  {formatUSD(solution.unit_economics.net_savings_usd)}
-                </div>
-                <div className="kpi-sub">
-                  {formatAED(solution.unit_economics.net_savings_aed)} |{' '}
-                  {solution.unit_economics.hours_saved.toFixed(1)}h faster
-                </div>
-              </div>
-
-              <div className="kpi-card">
-                <div className="kpi-label">Demurrage &amp; Spoilage Prevented</div>
-                <div className="kpi-value">
-                  {formatUSD(
-                    solution.unit_economics.demurrage_prevented_usd +
-                      solution.unit_economics.spoilage_prevented_usd
-                  )}
-                </div>
-                <div className="kpi-sub">
-                  12% Clearinghouse Fee: {formatUSD(solution.unit_economics.platform_fee_usd)} (
-                  {formatAED(solution.unit_economics.platform_fee_aed)})
-                </div>
-              </div>
-
-              <div className="kpi-card">
-                <div className="kpi-label">T-GNN Search-Tree Pruning</div>
-                <div className="kpi-value">
-                  {solution.gnn_warmstart.prune_ratio_pct.toFixed(1)}%
-                </div>
-                <div className="kpi-sub">
-                  {solution.gnn_warmstart.pruned_variables} /{' '}
-                  {solution.gnn_warmstart.fleet_scale_variables} fleet vars pruned
-                </div>
-              </div>
-
-              <div className="kpi-card">
-                <div className="kpi-label">Solver Core &amp; Optimality Gap</div>
-                <div className="kpi-value mono">{solution.total_solver_ms.toFixed(1)} ms</div>
-                <div className="kpi-sub">
-                  HiGHS MILP Gap: {solution.optimality_gap_pct.toFixed(2)}% | Z3:{' '}
-                  {solution.optimal_route.z3_status}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <CorridorMap
-            nodes={topology.nodes}
-            edges={topology.edges}
-            solution={solution}
-            hormuzDelayHours={disruption.hormuz_delay_hours}
-            jebelAliDelayHours={disruption.jebel_ali_congestion_hours}
-          />
-
           {solution && workflow && (
-            <div className="panel">
-              <div className="panel-header">
-                <h2>
-                  <Layers size={16} /> Autonomous Execution Bridge &amp; 1-Click Dispatch
-                </h2>
+            <div className="decision-header-panel">
+              <div className="decision-top-row">
+                <div>
+                  <div className="decision-title-row">
+                    <h2 className="decision-title">{solution.optimal_route.route_name}</h2>
+                    <span className={`badge ${solution.optimal_route.z3_status === 'SAT' ? 'sat' : 'unsat'}`}>
+                      Z3 {solution.optimal_route.z3_status}
+                    </span>
+                  </div>
+                  <p className="decision-meta tabular">
+                    <span>
+                      {shipment.shipper} → {shipment.consignee}
+                    </span>
+                    <span className="mono">{solution.optimal_route.node_sequence.join(' → ')}</span>
+                  </p>
+                </div>
+
                 <div className="btn-row">
                   <button
                     type="button"
@@ -589,12 +544,75 @@ export default function App() {
                   <strong>
                     <CheckCircle2 size={15} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
                     Bonded Corridor Dispatched ({workflow.approval_receipt.etir_seal_id})
-                  </strong>{' '}
-                  — Tx: <span className="mono">{workflow.approval_receipt.transaction_hash}</span> |
-                  APIs: {workflow.approval_receipt.dispatched_apis.join(' • ')}
+                  </strong>
+                  <span>
+                    Tx: <span className="mono">{workflow.approval_receipt.transaction_hash}</span>
+                  </span>
+                  <span>APIs: {workflow.approval_receipt.dispatched_apis.join(', ')}</span>
                 </div>
               )}
 
+              <div className="kpi-grid">
+                <div className="kpi-card">
+                  <div className="kpi-label">Net Savings vs. Baseline</div>
+                  <div className="kpi-value savings tabular">
+                    {formatUSD(solution.unit_economics.net_savings_usd)}
+                  </div>
+                  <div className="kpi-sub tabular">
+                    {formatAED(solution.unit_economics.net_savings_aed)} ·{' '}
+                    {formatUSD(solution.optimal_route.total_economic_cost_usd)} optimal cost
+                  </div>
+                </div>
+
+                <div className="kpi-card">
+                  <div className="kpi-label">Transit &amp; SLA Margin</div>
+                  <div className="kpi-value tabular">
+                    {solution.optimal_route.total_hours.toFixed(1)} h
+                  </div>
+                  <div className="kpi-sub tabular">
+                    {solution.unit_economics.hours_saved.toFixed(1)} h faster · SLA ceiling{' '}
+                    {shipment.max_transit_hours.toFixed(0)} h
+                  </div>
+                </div>
+
+                <div className="kpi-card">
+                  <div className="kpi-label">Thermal Arrival Integrity</div>
+                  <div className="kpi-value tabular">
+                    {solution.optimal_route.predicted_arrival_temp_c.toFixed(1)} °C
+                  </div>
+                  <div className="kpi-sub tabular">
+                    Ceiling {shipment.max_temp_c.toFixed(1)} °C ·{' '}
+                    {shipment.is_temp_sensitive ? 'GDP Active Cold-Chain' : 'Ambient Freight'}
+                  </div>
+                </div>
+
+                <div className="kpi-card">
+                  <div className="kpi-label">Avoided Risk Exposure</div>
+                  <div className="kpi-value tabular">
+                    {formatUSD(
+                      solution.unit_economics.demurrage_prevented_usd +
+                        solution.unit_economics.spoilage_prevented_usd
+                    )}
+                  </div>
+                  <div className="kpi-sub tabular">
+                    Demurrage {formatUSD(solution.unit_economics.demurrage_prevented_usd)} ·
+                    Spoilage {formatUSD(solution.unit_economics.spoilage_prevented_usd)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <CorridorMap
+            nodes={topology.nodes}
+            edges={topology.edges}
+            solution={solution}
+            hormuzDelayHours={disruption.hormuz_delay_hours}
+            jebelAliDelayHours={disruption.jebel_ali_congestion_hours}
+          />
+
+          {solution && workflow && (
+            <div className="panel">
               <div
                 tabIndex={0}
                 role="region"
@@ -609,27 +627,26 @@ export default function App() {
                     <tr>
                       <th>Corridor Route</th>
                       <th>Z3 Proof</th>
-                      <th>Transit</th>
-                      <th>Arrival Temp</th>
-                      <th>Freight + Demurrage</th>
-                      <th>Risk / Penalty</th>
-                      <th>Total Economic Cost</th>
+                      <th className="num">Transit</th>
+                      <th className="num">Arrival Temp</th>
+                      <th className="num">Freight + Demurrage</th>
+                      <th className="num">Risk / Penalty</th>
+                      <th className="num">Total Economic Cost</th>
                     </tr>
                   </thead>
                   <tbody>
                     {solution.candidates.map((cand) => (
                       <tr key={cand.route_id} className={cand.is_optimal ? 'is-optimal' : undefined}>
                         <th>
-                          {cand.route_name}
-                          {cand.is_optimal && (
-                            <span className="badge sat" style={{ marginLeft: 8 }}>
-                              OPTIMAL
+                          <div className="route-cell-title">
+                            <span>{cand.route_name}</span>
+                            <span className="route-badges">
+                              {cand.is_optimal && <span className="badge sat">Optimal</span>}
+                              {cand.is_baseline && <span className="badge unsat">Baseline</span>}
                             </span>
-                          )}
-                          {cand.is_baseline && (
-                            <span className="badge unsat" style={{ marginLeft: 8 }}>
-                              BASELINE
-                            </span>
+                          </div>
+                          {cand.z3_violation && (
+                            <div className="route-violation">{cand.z3_violation}</div>
                           )}
                         </th>
                         <td>
@@ -637,15 +654,17 @@ export default function App() {
                             {cand.z3_status}
                           </span>
                         </td>
-                        <td className="mono">{cand.total_hours.toFixed(1)} h</td>
-                        <td className="mono">{cand.predicted_arrival_temp_c.toFixed(1)} °C</td>
-                        <td className="mono">
+                        <td className="mono num tabular">{cand.total_hours.toFixed(1)} h</td>
+                        <td className="mono num tabular">
+                          {cand.predicted_arrival_temp_c.toFixed(1)} °C
+                        </td>
+                        <td className="mono num tabular">
                           {formatUSD(cand.freight_cost_usd + cand.demurrage_cost_usd)}
                         </td>
-                        <td className="mono">
+                        <td className="mono num tabular">
                           {formatUSD(cand.tariff_penalty_usd + cand.spoilage_exposure_usd)}
                         </td>
-                        <td className="mono">
+                        <td className="mono num tabular">
                           <strong>{formatUSD(cand.total_economic_cost_usd)}</strong>
                         </td>
                       </tr>
@@ -656,39 +675,81 @@ export default function App() {
             </div>
           )}
 
-          {solution && (
-            <div className="panel">
-              <div className="panel-header">
-                <h2>
-                  <ShieldCheck size={16} /> Z3 SMT Formal Regulatory Certificates
-                </h2>
-              </div>
-              <div className="z3-list">
-                {solution.z3_certificates.slice(0, 4).map((cert) => (
-                  <div key={cert.route_id} className="z3-card">
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        marginBottom: 6,
-                      }}
-                    >
-                      <strong>{cert.route_name}</strong>
-                      <span className={`badge ${cert.status === 'SAT' ? 'sat' : 'unsat'}`}>
-                        {cert.status}
-                      </span>
-                    </div>
-                    {cert.checks.map((chk) => (
-                      <div key={chk.rule_id} style={{ marginBottom: 4 }}>
-                        <span>{chk.passed ? '✓ ' : '✗ '}</span>
-                        <strong>{chk.rule_id}:</strong> {chk.detail}
+          {solution && workflow && (
+            <section className="secondary-disclosures" aria-label="Audit and Pipeline Diagnostics">
+              <details className="enterprise-disclosure">
+                <summary>
+                  Z3 Formal Regulatory Certificates ({solution.z3_certificates.length} evaluated)
+                </summary>
+                <div className="disclosure-content">
+                  <div className="z3-list">
+                    {solution.z3_certificates.map((cert) => (
+                      <div key={cert.route_id} className="z3-card">
+                        <div className="z3-card-header">
+                          <strong>{cert.route_name}</strong>
+                          <span className={`badge ${cert.status === 'SAT' ? 'sat' : 'unsat'}`}>
+                            {cert.status}
+                          </span>
+                        </div>
+                        {cert.checks.map((chk) => (
+                          <div key={chk.rule_id} className="z3-check-row">
+                            <span>{chk.passed ? '✓ ' : '✗ '}</span>
+                            <strong>{chk.rule_id}:</strong> {chk.detail}
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              </details>
+
+              <details className="enterprise-disclosure">
+                <summary>
+                  Solver &amp; Pipeline Diagnostics ({workflow.total_pipeline_ms.toFixed(1)} ms E2E ·
+                  T-GNN {solution.gnn_warmstart.prune_ratio_pct.toFixed(1)}% pruned)
+                </summary>
+                <div className="disclosure-content">
+                  <div className="diagnostics-grid">
+                    <div className="diag-block">
+                      <div className="diag-label">T-GNN Warm-Start</div>
+                      <div className="diag-value tabular">
+                        {solution.gnn_warmstart.pruned_variables} /{' '}
+                        {solution.gnn_warmstart.fleet_scale_variables} vars pruned (
+                        {solution.gnn_warmstart.prune_ratio_pct.toFixed(1)}%)
+                      </div>
+                      <div className="diag-sub">
+                        {solution.gnn_warmstart.model_architecture}
+                      </div>
+                    </div>
+
+                    <div className="diag-block">
+                      <div className="diag-label">MILP Optimality &amp; Clearinghouse Fee</div>
+                      <div className="diag-value tabular">
+                        Gap {solution.optimality_gap_pct.toFixed(2)}% · Fee{' '}
+                        {formatUSD(solution.unit_economics.platform_fee_usd)} (
+                        {formatAED(solution.unit_economics.platform_fee_aed)})
+                      </div>
+                      <div className="diag-sub">
+                        {solution.solver_engine} ·{' '}
+                        {solution.unit_economics.clearinghouse_take_rate_pct.toFixed(0)}% take-rate
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="telemetry-strip">
+                    {workflow.stage_latencies.map((st) => (
+                      <div className="stage-card" key={st.stage}>
+                        <div className="stage-name">{st.stage}</div>
+                        <div className="stage-meta">
+                          <span>{st.component}</span>
+                          <span className="stage-ms tabular">{st.duration_ms.toFixed(2)} ms</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </section>
           )}
         </section>
       </main>
@@ -720,7 +781,7 @@ export default function App() {
               className={`btn ${modalTab === 'z3' ? 'primary' : ''}`}
               onClick={() => setModalTab('z3')}
             >
-              Z3 SMT-LIB2
+              Z3 Proofs
             </button>
           </div>
         </div>
@@ -741,7 +802,7 @@ export default function App() {
             modalTab === 'z3' &&
             solution.z3_certificates.map((cert) => (
               <div key={cert.route_id} className="z3-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div className="z3-card-header">
                   <strong>{cert.route_name}</strong>
                   <span className={`badge ${cert.status === 'SAT' ? 'sat' : 'unsat'}`}>
                     {cert.status}
@@ -765,6 +826,7 @@ export default function App() {
           </form>
         </div>
       </dialog>
-    </div>
+      </div>
+    </CorridorHomepage>
   );
 }
