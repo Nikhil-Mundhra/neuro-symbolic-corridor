@@ -3,6 +3,8 @@
 ## 1. Sub-400ms End-to-End Execution Pipeline
 When an AIS maritime anomaly, port berth congestion spike, or cold-chain compressor fault arrives:
 
+> **Phase 0 Implementation Note:** The pipeline below describes the end-to-end architecture. In the current Phase 0 MVP, `parser.py` uses a deterministic regex finite-state extractor (`INNSA` → `EUFRA`), `gnn_warmstart.py` runs a 2-layer NumPy spatiotemporal risk proxy used for warm-start candidate ordering and fleet-scale pruning telemetry, `milp_solver.py` optimizes over the 7 curated multimodal routes in `CANDIDATE_ROUTES` (rather than arbitrary edge-flow variables), and `gateway-go` persists `WorkflowRun` state in an in-memory `WorkflowStore` (with `postgres` in `docker-compose.yml` provisioned for Phase 1).
+
 1. **T = 0 ms — Go Ingestion & Durable Workflow (`services/gateway-go`)**:
    - Receives disruption telemetry or Bill of Lading submission.
    - Initializes a thread-safe `WorkflowRun` (`PENDING`) with deterministic retry and idempotency metadata.

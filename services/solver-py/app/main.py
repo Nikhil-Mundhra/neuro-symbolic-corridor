@@ -76,7 +76,7 @@ def solve(req: SolveRequest) -> SolveResponse:
             pareto_frontier,
             unit_economics,
             mip_gap,
-        ) = solve_corridor(req.shipment, req.disruption, req.pareto_alpha)
+        ) = solve_corridor(req.shipment, req.disruption, req.pareto_alpha, gnn_metrics=gnn_metrics)
     except NoFeasibleRouteError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     math_ms = round((time.perf_counter() - t_math_start) * 1000.0, 3)

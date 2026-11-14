@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -137,6 +138,15 @@ func (g *GatewayServer) proxyPOST(path string) http.HandlerFunc {
 	}
 }
 
+type solverClientError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *solverClientError) Error() string {
+	return fmt.Sprintf("solver rejected request (%d): %s", e.StatusCode, string(e.Body))
+}
+
 func (g *GatewayServer) callSolverWithRetry(ctx context.Context, body []byte) ([]byte, int, error) {
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -161,7 +171,10 @@ func (g *GatewayServer) callSolverWithRetry(ctx context.Context, body []byte) ([
 			continue
 		}
 		if resp.StatusCode >= 400 {
-			return nil, attempt, fmt.Errorf("solver rejected request (%d): %s", resp.StatusCode, string(respBytes))
+			return nil, attempt, &solverClientError{
+				StatusCode: resp.StatusCode,
+				Body:       respBytes,
+			}
 		}
 		return respBytes, attempt, nil
 	}
@@ -182,6 +195,17 @@ func (g *GatewayServer) handleSolve(w http.ResponseWriter, r *http.Request) {
 
 	respBytes, retries, err := g.callSolverWithRetry(r.Context(), body)
 	if err != nil {
+		var clientErr *solverClientError
+		if errors.As(err, &clientErr) {
+			if json.Valid(clientErr.Body) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(clientErr.StatusCode)
+				_, _ = w.Write(clientErr.Body)
+				return
+			}
+			writeJSON(w, clientErr.StatusCode, map[string]string{"error": string(clientErr.Body)})
+			return
+		}
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}

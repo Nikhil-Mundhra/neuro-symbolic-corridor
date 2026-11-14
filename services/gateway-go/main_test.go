@@ -192,6 +192,25 @@ func TestCallSolverRetryAndErrorPaths(t *testing.T) {
 	if !strings.Contains(hRec.Body.String(), `"solver_status":"unreachable"`) {
 		t.Fatalf("expected unreachable solver_status, got %s", hRec.Body.String())
 	}
+
+	// Test 422 infeasibility passthrough without turning into 502
+	unsatSolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"detail":"No feasible route: all candidate routes failed Z3 formal verification (UNSAT)."}`))
+	}))
+	defer unsatSolver.Close()
+
+	unsatGW := NewGatewayServer(unsatSolver.URL)
+	uReq := httptest.NewRequest(http.MethodPost, "/api/v1/solve", bytes.NewBufferString(`{}`))
+	uRec := httptest.NewRecorder()
+	unsatGW.Routes().ServeHTTP(uRec, uReq)
+	if uRec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 passthrough, got %d: %s", uRec.Code, uRec.Body.String())
+	}
+	if !strings.Contains(uRec.Body.String(), "UNSAT") {
+		t.Fatalf("expected UNSAT detail in 422 body, got %s", uRec.Body.String())
+	}
 }
 
 func TestSSEEndpointStreamsEvents(t *testing.T) {

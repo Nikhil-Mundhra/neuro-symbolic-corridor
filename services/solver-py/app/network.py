@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from app.models import CorridorEdge, CorridorNode, CorridorTopology, TransportMode
 
+# Phase 0 Note: AEDWC (Al Maktoum Int'l) and node/edge metadata fields such as
+# `daily_demurrage_usd`, `capacity_teu`, and `co2_kg_per_teu` are provisioned for Phase 1/2
+# fleet-scale graph MILP expansion. Phase 0 routing evaluates the explicit paths in
+# `CANDIDATE_ROUTES` below using `ShipmentSpec.demurrage_usd_per_teu_day`.
 CORRIDOR_NODES: list[CorridorNode] = [
     CorridorNode(
         id="INNSA",

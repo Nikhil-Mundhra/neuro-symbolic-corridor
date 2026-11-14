@@ -13,6 +13,11 @@ from app.models import (
     Z3RuleCheck,
 )
 
+# UAE-India CEPA Art. 3.15 requires >= 40% origin value-add for 0% preferential duty;
+# non-qualifying shipments fall back to the 5% GCC MFN common external tariff.
+CEPA_MIN_VALUE_ADD_PCT = 40.0
+CEPA_MFN_PENALTY_RATE = 0.05
+
 
 def compute_route_physics(
     edges: list[CorridorEdge],
@@ -69,7 +74,7 @@ def verify_route_with_z3(
     solver = z3.Solver()
 
     # Symbolic Z3 variables
-    z_hs_valid = z3.Bool("hs_code_valid_8digit")
+    z_hs_valid = z3.Bool("hs_code_valid")
     z_continuous_seal = z3.Bool("gcc_continuous_etir_seal")
     z_touches_oman = z3.Bool("non_party_oman_transit")
     z_require_cepa = z3.Bool("require_cepa_zero_tariff")
@@ -97,7 +102,7 @@ def verify_route_with_z3(
     axiom_cepa_origin = z3.Implies(
         z_require_cepa,
         z3.And(
-            z_cepa_value_add >= z3.RealVal("40.0"),
+            z_cepa_value_add >= z3.RealVal(str(CEPA_MIN_VALUE_ADD_PCT)),
             z3.Implies(z_touches_oman, z_continuous_seal),
         ),
     )
@@ -118,7 +123,8 @@ def verify_route_with_z3(
     # Individual rule diagnostics for transparent audit trail
     seal_ok = has_valid_hs and continuous_seal
     cepa_ok = (not disruption.require_cepa_zero_tariff) or (
-        shipment.cepa_value_add_pct >= 40.0 and ((not touches_oman) or continuous_seal)
+        shipment.cepa_value_add_pct >= CEPA_MIN_VALUE_ADD_PCT
+        and ((not touches_oman) or continuous_seal)
     )
     temp_ok = (not shipment.is_temp_sensitive) or (arrival_temp_c <= shipment.max_temp_c)
     sla_ok = total_hours <= shipment.max_transit_hours
@@ -167,13 +173,7 @@ def verify_route_with_z3(
     ]
 
     violations = [c.detail for c in checks if not c.passed]
-    smtlib_excerpt = (
-        f"(assert (and gcc_continuous_etir_seal "
-        f"(=> require_cepa_zero_tariff (and (>= cepa_origin_value_add_pct 40.0) "
-        f"(=> non_party_oman_transit gcc_continuous_etir_seal))) "
-        f"(=> gdp_pharma_cold_chain (<= predicted_arrival_temp_c {shipment.max_temp_c:.1f})) "
-        f"(<= total_transit_hours {shipment.max_transit_hours:.1f}))) ; check-sat => {'sat' if is_sat else 'unsat'}"
-    )
+    smtlib_excerpt = f"{solver.to_smt2().strip()}\n(check-sat) ; => {'sat' if is_sat else 'unsat'}"
 
     return Z3ProofCertificate(
         route_id=route_id,

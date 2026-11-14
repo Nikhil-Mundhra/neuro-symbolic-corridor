@@ -9,14 +9,22 @@ from app.models import (
     CandidatePathEvaluation,
     CorridorEdge,
     DisruptionState,
+    GNNWarmStartMetrics,
     ParetoPoint,
     ShipmentSpec,
     UnitEconomics,
     Z3ProofCertificate,
 )
 from app.network import CANDIDATE_ROUTES, get_edge_map
-from app.z3_compiler import compute_route_physics, verify_route_with_z3
+from app.z3_compiler import (
+    CEPA_MFN_PENALTY_RATE,
+    CEPA_MIN_VALUE_ADD_PCT,
+    compute_route_physics,
+    verify_route_with_z3,
+)
 
+# UAE Dirham is pegged to the US Dollar at 3.6725 AED/USD; Phase 0 clearinghouse take-rate is 12%
+# (target 10-15% range in ROADMAP.md).
 AED_PER_USD = 3.6725
 CLEARINGHOUSE_TAKE_RATE = 0.12
 
@@ -58,9 +66,10 @@ def _evaluate_candidate(
     touches_oman = any(e.touches_oman for e in edges)
     tariff_penalty = 0.0
     if disruption.require_cepa_zero_tariff and (
-        shipment.cepa_value_add_pct < 40.0 or (touches_oman and not continuous_seal)
+        shipment.cepa_value_add_pct < CEPA_MIN_VALUE_ADD_PCT
+        or (touches_oman and not continuous_seal)
     ):
-        tariff_penalty = shipment.cargo_value_usd * 0.05
+        tariff_penalty = shipment.cargo_value_usd * CEPA_MFN_PENALTY_RATE
 
     spoilage_exposure = 0.0
     if shipment.is_temp_sensitive and arrival_temp_c > shipment.max_temp_c:
@@ -126,6 +135,7 @@ def solve_corridor(
     shipment: ShipmentSpec,
     disruption: DisruptionState,
     pareto_alpha: float,
+    gnn_metrics: GNNWarmStartMetrics | None = None,
 ) -> tuple[
     list[CandidatePathEvaluation],
     list[Z3ProofCertificate],
@@ -139,7 +149,17 @@ def solve_corridor(
     candidates: list[CandidatePathEvaluation] = []
     certificates: list[Z3ProofCertificate] = []
 
-    for route_def in CANDIDATE_ROUTES:
+    ordered_routes = list(CANDIDATE_ROUTES)
+    if gnn_metrics is not None and gnn_metrics.edge_risk_scores:
+        # Warm-start ordering: evaluate lowest-risk routes first based on T-GNN edge scores
+        ordered_routes.sort(
+            key=lambda r: max(
+                (gnn_metrics.edge_risk_scores.get(eid, 0.5) for eid in r["edge_ids"]),  # type: ignore[attr-defined]
+                default=0.5,
+            )
+        )
+
+    for route_def in ordered_routes:
         cand, cert = _evaluate_candidate(
             route_id=str(route_def["route_id"]),
             route_name=str(route_def["route_name"]),

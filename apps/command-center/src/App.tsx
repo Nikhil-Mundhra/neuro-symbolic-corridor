@@ -86,7 +86,15 @@ export default function App() {
           }),
         });
         if (!res.ok) {
-          throw new Error(`Gateway returned ${res.status}`);
+          let detail = `Gateway returned ${res.status}`;
+          try {
+            const errJson = (await res.json()) as { detail?: string; error?: string };
+            if (errJson.detail) detail = errJson.detail;
+            else if (errJson.error) detail = errJson.error;
+          } catch {
+            // Keep HTTP status fallback when response body is not JSON
+          }
+          throw new Error(detail);
         }
         const data = (await res.json()) as WorkflowRun;
         setWorkflow(data);
@@ -141,7 +149,24 @@ export default function App() {
   useEffect(() => {
     const es = new EventSource('/api/v1/events');
     es.addEventListener('connected', () => setSseConnected(true));
-    es.addEventListener('workflow_update', () => setSseConnected(true));
+    es.addEventListener('workflow_update', (evt) => {
+      setSseConnected(true);
+      try {
+        const data = JSON.parse((evt as MessageEvent<string>).data) as {
+          workflow_id?: string;
+          status?: WorkflowRun['status'];
+        };
+        if (data.workflow_id && data.status) {
+          setWorkflow((prev) =>
+            prev && prev.workflow_id === data.workflow_id && prev.status !== data.status
+              ? { ...prev, status: data.status! }
+              : prev
+          );
+        }
+      } catch {
+        // Ignore malformed SSE payload
+      }
+    });
     es.onerror = () => setSseConnected(false);
     return () => {
       es.close();
@@ -273,8 +298,16 @@ export default function App() {
       {errorMsg && (
         <div className="dispatch-banner" role="alert">
           <AlertTriangle size={15} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-          Backend connection notice: {errorMsg}. Ensure <code>solver-py</code> (:8001) and{' '}
-          <code>gateway-go</code> (:8080) are running.
+          {errorMsg.startsWith('No feasible route') ? (
+            <>
+              <strong>Z3 Regulatory / SLA Infeasibility:</strong> {errorMsg}
+            </>
+          ) : (
+            <>
+              Backend connection notice: {errorMsg}. Ensure <code>solver-py</code> (:8001) and{' '}
+              <code>gateway-go</code> (:8080) are running.
+            </>
+          )}
         </div>
       )}
 

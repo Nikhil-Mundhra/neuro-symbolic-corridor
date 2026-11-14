@@ -114,18 +114,38 @@ func (s *WorkflowStore) ApproveAndDispatch(workflowID, operator string) (*Workfl
 		ApprovedBy:      operator,
 		ApprovedAtUTC:   now,
 		TransactionHash: txHash,
-		DispatchedAPIs: []string{
-			"Dubai Trade / Mirsal 2 Transit Bond",
-			"Maqta Gateway ATLP Manifest",
-			"Oman Bayan ↔ Dubai Customs Green Corridor e-TIR",
-			"Etihad Cargo Spot e-AWB Reservation",
-		},
-		ETIRSealID: fmt.Sprintf("ETIR-GCC-%s", workflowID),
+		DispatchedAPIs:  buildDispatchedAPIs(wf.Solution),
+		ETIRSealID:      fmt.Sprintf("ETIR-GCC-%s", workflowID),
 	}
 	s.mu.Unlock()
 
 	s.broadcast(wf)
 	return wf, nil
+}
+
+func buildDispatchedAPIs(solution json.RawMessage) []string {
+	apis := []string{
+		"Dubai Trade / Mirsal 2 Transit Bond",
+		"Maqta Gateway ATLP Manifest",
+	}
+
+	var parsed struct {
+		CustomsPayloads *struct {
+			OmanGreenCorridorETIR *struct {
+				Activated bool `json:"activated"`
+			} `json:"oman_green_corridor_etir"`
+			EtihadCargoEAWB json.RawMessage `json:"etihad_cargo_eawb"`
+		} `json:"customs_payloads"`
+	}
+	if len(solution) > 0 && json.Unmarshal(solution, &parsed) == nil && parsed.CustomsPayloads != nil {
+		if parsed.CustomsPayloads.OmanGreenCorridorETIR != nil && parsed.CustomsPayloads.OmanGreenCorridorETIR.Activated {
+			apis = append(apis, "Oman Bayan ↔ Dubai Customs Green Corridor e-TIR")
+		}
+		if len(parsed.CustomsPayloads.EtihadCargoEAWB) > 0 && string(parsed.CustomsPayloads.EtihadCargoEAWB) != "null" {
+			apis = append(apis, "Etihad Cargo Spot e-AWB Reservation")
+		}
+	}
+	return apis
 }
 
 func (s *WorkflowStore) Subscribe() chan []byte {

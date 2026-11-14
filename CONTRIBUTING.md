@@ -17,7 +17,7 @@ This repository implements a tri-lingual, high-reliability Neuro-Symbolic Supply
 
 ### Go (`services/gateway-go`)
 - **Runtime**: Go 1.26 standard library `net/http` (`ServeMux` method routing) + concurrency-safe `sync.RWMutex` durable workflow store.
-- **State Machine**: Workflows transition strictly through `PENDING -> SOLVED -> APPROVED -> DISPATCHED_BONDED_CORRIDOR` (or `FAILED`).
+- **State Machine**: Phase 0 workflows are stored in-memory upon solve (`SOLVED`) and transition to `DISPATCHED_BONDED_CORRIDOR` on approval (`PENDING` and `FAILED` constants are reserved for Phase 1 async/Postgres-backed execution).
 - **Testing**: `go vet ./...` and `go test -race -v ./...`.
 
 ### Frontend (`apps/command-center`)
