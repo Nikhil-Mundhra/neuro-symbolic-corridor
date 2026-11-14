@@ -337,37 +337,40 @@ export function CorridorHomepage({
     let observer: IntersectionObserver | null = null;
     if (typeof IntersectionObserver !== 'undefined') {
       const lazyVideos = root.querySelectorAll<HTMLVideoElement>('video[loading="lazy"]');
+      const activateVideo = (media: HTMLVideoElement) => {
+        const wantsAutoplay =
+          media.dataset.autoplay === 'true' && !reducedMotionQuery?.matches;
+        if (!supportsLazyMedia || wantsAutoplay) {
+          if (!supportsLazyMedia) {
+            if (media.dataset.src) {
+              media.src = media.dataset.src;
+              delete media.dataset.src;
+            }
+            for (const srcEl of media.querySelectorAll<HTMLSourceElement>('source[data-src]')) {
+              if (srcEl.dataset.src) {
+                srcEl.src = srcEl.dataset.src;
+                delete srcEl.dataset.src;
+              }
+            }
+          }
+          const targetPreload = media.dataset.preload;
+          media.preload =
+            targetPreload === 'auto' || targetPreload === 'metadata' || targetPreload === ''
+              ? targetPreload
+              : 'metadata';
+          media.load?.();
+        }
+        if (wantsAutoplay) {
+          void media.play?.()?.catch?.(() => {});
+        }
+        observer?.unobserve(media);
+      };
+
       observer = new IntersectionObserver(
-        (entries, obs) => {
+        (entries) => {
           for (const entry of entries) {
             if (!entry.isIntersecting) continue;
-            const media = entry.target as HTMLVideoElement;
-            const wantsAutoplay =
-              media.dataset.autoplay === 'true' && !reducedMotionQuery?.matches;
-            if (!supportsLazyMedia || wantsAutoplay) {
-              if (!supportsLazyMedia) {
-                if (media.dataset.src) {
-                  media.src = media.dataset.src;
-                  delete media.dataset.src;
-                }
-                for (const srcEl of media.querySelectorAll<HTMLSourceElement>('source[data-src]')) {
-                  if (srcEl.dataset.src) {
-                    srcEl.src = srcEl.dataset.src;
-                    delete srcEl.dataset.src;
-                  }
-                }
-              }
-              const targetPreload = media.dataset.preload;
-              media.preload =
-                targetPreload === 'auto' || targetPreload === 'metadata' || targetPreload === ''
-                  ? targetPreload
-                  : 'metadata';
-              media.load?.();
-            }
-            if (wantsAutoplay) {
-              void media.play?.()?.catch?.(() => {});
-            }
-            obs.unobserve(media);
+            activateVideo(entry.target as HTMLVideoElement);
           }
         },
         { rootMargin: '200px 0px' }
@@ -378,7 +381,15 @@ export function CorridorHomepage({
           media.dataset.preload = media.preload;
         }
         media.preload = 'none';
-        observer.observe(media);
+        const rect = media.getBoundingClientRect?.();
+        const isLaidOut = rect != null && rect.width > 0 && rect.height > 0;
+        const inViewport =
+          isLaidOut && rect.bottom >= -200 && rect.top <= (window.innerHeight || 0) + 200;
+        if (inViewport && media.dataset.autoplay === 'true' && !reducedMotionQuery?.matches) {
+          activateVideo(media);
+        } else {
+          observer.observe(media);
+        }
       }
     }
 
@@ -392,7 +403,11 @@ export function CorridorHomepage({
     const vid = showreelVideoRef.current;
     if (!vid) return;
     if (vid.paused) {
-      void vid.play?.().catch(() => {});
+      if (vid.readyState === 0) {
+        vid.preload = 'auto';
+        vid.load?.();
+      }
+      void vid.play?.()?.catch?.(() => {});
       setShowreelPlaying(true);
     } else {
       vid.pause?.();
@@ -669,6 +684,7 @@ export function CorridorHomepage({
             <article className="ds-case-card">
               <div className="ds-case-media">
                 <video
+                  key={STOCK_MEDIA.maritimeVideo}
                   muted
                   loop
                   playsInline
@@ -712,6 +728,7 @@ export function CorridorHomepage({
             <article className="ds-case-card ds-case-reverse">
               <div className="ds-case-media">
                 <video
+                  key={STOCK_MEDIA.railVideo}
                   muted
                   loop
                   playsInline
@@ -837,14 +854,18 @@ export function CorridorHomepage({
         <div className="ds-container">
           <div className="ds-showreel-frame">
             <video
+              key={STOCK_MEDIA.showreelVideo}
               ref={showreelVideoRef}
               muted
               loop
               playsInline
               preload="none"
+              data-autoplay="true"
               width={1280}
               height={540}
               poster={POSTER_SHOWREEL}
+              onPlay={() => setShowreelPlaying(true)}
+              onPause={() => setShowreelPlaying(false)}
               aria-label="Stock maritime container terminal operational showreel"
               {...({ loading: 'lazy' } as Record<string, string>)}
             >
