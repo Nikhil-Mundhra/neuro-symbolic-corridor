@@ -12,7 +12,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from app.gnn_warmstart import compute_gnn_warmstart
-from app.milp_solver import _solve_milp_for_alpha, solve_corridor
+from app.milp_solver import NoFeasibleRouteError, _solve_milp_for_alpha, solve_corridor
 from app.models import DisruptionState, ShipmentSpec
 from app.network import CANDIDATE_ROUTES, CORRIDOR_EDGES, get_edge_map
 from app.parser import parse_bol_text
@@ -126,28 +126,31 @@ def test_property_milp_optimality_and_pareto_monotonicity(
       total_economic_cost_usd must be non-increasing and total_hours must be non-decreasing.
     - Unit economics net savings and prevented costs are strictly non-negative.
     """
-    candidates, certificates, optimal, pareto, econ, mip_gap = solve_corridor(
-        shipment, disruption, alpha
-    )
+    try:
+        candidates, certificates, optimal, pareto, econ, mip_gap = solve_corridor(
+            shipment, disruption, alpha
+        )
+    except NoFeasibleRouteError:
+        return
 
     assert len(candidates) == len(CANDIDATE_ROUTES)
     assert len(certificates) == len(CANDIDATE_ROUTES)
     assert mip_gap == 0.0
 
     sat_candidates = [c for c in candidates if c.z3_status == "SAT"]
-    if sat_candidates:
-        assert optimal.z3_status == "SAT"
-        # Verify MILP global optimality: no other SAT candidate has a strictly lower scalarized objective
-        opt_obj = (
-            alpha * optimal.total_economic_cost_usd
-            + (1.0 - alpha) * shipment.value_of_time_usd_per_hour * optimal.total_hours
+    assert sat_candidates
+    assert optimal.z3_status == "SAT"
+    # Verify MILP global optimality: no other SAT candidate has a strictly lower scalarized objective
+    opt_obj = (
+        alpha * optimal.total_economic_cost_usd
+        + (1.0 - alpha) * shipment.value_of_time_usd_per_hour * optimal.total_hours
+    )
+    for cand in sat_candidates:
+        cand_obj = (
+            alpha * cand.total_economic_cost_usd
+            + (1.0 - alpha) * shipment.value_of_time_usd_per_hour * cand.total_hours
         )
-        for cand in sat_candidates:
-            cand_obj = (
-                alpha * cand.total_economic_cost_usd
-                + (1.0 - alpha) * shipment.value_of_time_usd_per_hour * cand.total_hours
-            )
-            assert opt_obj <= cand_obj + 1e-5
+        assert opt_obj <= cand_obj + 1e-5
 
     # Pareto frontier monotonicity check:
     # As alpha increases from 0.0 (100% speed) to 1.0 (100% economic cost),

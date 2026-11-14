@@ -21,6 +21,10 @@ AED_PER_USD = 3.6725
 CLEARINGHOUSE_TAKE_RATE = 0.12
 
 
+class NoFeasibleRouteError(ValueError):
+    """Raised when all candidate routes fail Z3 formal verification (UNSAT)."""
+
+
 def _evaluate_candidate(
     route_id: str,
     route_name: str,
@@ -150,8 +154,9 @@ def solve_corridor(
 
     sat_candidates = [c for c in candidates if c.z3_status == "SAT"]
     if not sat_candidates:
-        # Fallback to customs-compliant routes if synthetic extreme SLA cannot be met
-        sat_candidates = [c for c in candidates if c.tariff_penalty_usd == 0.0] or candidates
+        raise NoFeasibleRouteError(
+            "No feasible route: all candidate routes failed Z3 formal verification (UNSAT)."
+        )
 
     best_idx, mip_gap = _solve_milp_for_alpha(
         sat_candidates, pareto_alpha, shipment.value_of_time_usd_per_hour

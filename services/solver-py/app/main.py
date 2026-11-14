@@ -5,12 +5,12 @@ from __future__ import annotations
 import time
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.customs_payloads import build_customs_payloads
 from app.gnn_warmstart import compute_gnn_warmstart
-from app.milp_solver import solve_corridor
+from app.milp_solver import NoFeasibleRouteError, solve_corridor
 from app.models import (
     CorridorTopology,
     ParseBoLRequest,
@@ -68,14 +68,17 @@ def solve(req: SolveRequest) -> SolveResponse:
 
     # Stage: Z3 SMT Verification + HiGHS MILP Optimization
     t_math_start = time.perf_counter()
-    (
-        candidates,
-        certificates,
-        optimal_route,
-        pareto_frontier,
-        unit_economics,
-        mip_gap,
-    ) = solve_corridor(req.shipment, req.disruption, req.pareto_alpha)
+    try:
+        (
+            candidates,
+            certificates,
+            optimal_route,
+            pareto_frontier,
+            unit_economics,
+            mip_gap,
+        ) = solve_corridor(req.shipment, req.disruption, req.pareto_alpha)
+    except NoFeasibleRouteError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     math_ms = round((time.perf_counter() - t_math_start) * 1000.0, 3)
 
     # Stage: Customs & Spot Booking JSON Payload Compilation

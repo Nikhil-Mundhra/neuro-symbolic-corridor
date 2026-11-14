@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from app.milp_solver import _evaluate_candidate, _solve_milp_for_alpha, solve_corridor
+import pytest
+
+from app.milp_solver import (
+    NoFeasibleRouteError,
+    _evaluate_candidate,
+    _solve_milp_for_alpha,
+    solve_corridor,
+)
 from app.models import DisruptionState, ShipmentSpec
 from app.network import get_edge_map
 from app.parser import get_scenarios
@@ -91,7 +98,7 @@ def test_milp_helpers_and_pareto_sweep() -> None:
     assert len(pareto) == 5
     assert econ.platform_fee_usd == round(econ.net_savings_usd * 0.12, 2)
 
+    # Impossible SLA pushes all routes to UNSAT -> must raise NoFeasibleRouteError
     impossible_sla = pharma.model_copy(update={"max_transit_hours": 10.0})
-    cands_fb, _, opt_fb, _, _, _ = solve_corridor(impossible_sla, disruption, 0.5)
-    assert len(cands_fb) > 0
-    assert opt_fb.is_optimal is True
+    with pytest.raises(NoFeasibleRouteError, match="UNSAT"):
+        solve_corridor(impossible_sla, disruption, 0.5)

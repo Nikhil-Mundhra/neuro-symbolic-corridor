@@ -122,3 +122,16 @@ def test_bol_parser_extracts_constraints() -> None:
     assert parsed.shipment.cargo_value_usd == 2_400_000.0
     assert parsed.shipment.is_temp_sensitive is True
     assert parsed.extraction_confidence >= 0.9
+
+
+def test_all_unsat_returns_422_no_feasible_route() -> None:
+    pharma = get_scenarios()[0]
+    impossible_sla = pharma.shipment.model_copy(update={"max_transit_hours": 10.0})
+    req = SolveRequest(
+        shipment=impossible_sla,
+        disruption=pharma.default_disruption,
+        pareto_alpha=0.5,
+    )
+    resp = client.post("/solve", json=req.model_dump())
+    assert resp.status_code == 422
+    assert "UNSAT" in resp.json()["detail"]
