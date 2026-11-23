@@ -198,3 +198,187 @@ export interface WorkflowRun {
   solution: SolveResponse;
   approval_receipt?: ApprovalReceipt;
 }
+
+export type CanonicalTransportMode =
+  | 'OCEAN'
+  | 'AIR'
+  | 'RAIL'
+  | 'ROAD'
+  | 'MULTIMODAL_SEA_AIR'
+  | 'MULTIMODAL_SEA_RAIL';
+
+export type PartyRole = 'SHP' | 'CNE' | 'NTF' | 'CAR' | 'BRK';
+
+export type DocumentStatus =
+  | 'DRFT'
+  | 'SUBM'
+  | 'PENA'
+  | 'PENU'
+  | 'CONF'
+  | 'ISSU'
+  | 'SURR'
+  | 'RELS'
+  | 'HOLD'
+  | 'REJE'
+  | 'VOID';
+
+export type GCCCustomsRegime =
+  | 'IMPORT_TO_LOCAL_FROM_ROW'
+  | 'IMPORT_FOR_REEXPORT_TO_LOCAL_FROM_ROW'
+  | 'EXPORT'
+  | 'RE_EXPORT'
+  | 'IMPORT_FROM_ROW_TO_FREE_ZONE'
+  | 'FREE_ZONE_TRANSFER'
+  | 'TRANSIT_THROUGH_AND_INTRA_GCC'
+  | 'TEMPORARY_ADMISSION'
+  | 'SEA_AIR_TRANSSHIPMENT';
+
+export interface PartyIdentification {
+  role: PartyRole;
+  legal_name: string;
+  address_line: string;
+  country_code: string;
+  uae_trn?: string | null;
+  uae_trn_fta_verified: boolean;
+  dubai_customs_code?: string | null;
+  eori_number?: string | null;
+  oman_cr_number?: string | null;
+  atlp_aeo_id?: string | null;
+}
+
+export interface ReeferSpecification {
+  min_temp_c: string | number;
+  max_temp_c: string | number;
+  setpoint_temp_c?: string | number | null;
+  humidity_pct?: string | number | null;
+}
+
+export interface HazmatSpecification {
+  un_number: string;
+  un_hazmat_class: string;
+  packing_group?: 'I' | 'II' | 'III' | null;
+  proper_shipping_name: string;
+  msds_document_ref?: string | null;
+  un383_certified?: boolean | null;
+}
+
+export interface OriginPreferenceSpec {
+  country_of_origin: string;
+  certificate_of_origin_no?: string | null;
+  preferential_cepa_claimed: boolean;
+  cepa_agreement_code?: string | null;
+  cepa_value_add_pct?: string | number | null;
+}
+
+export interface ConsignmentItem {
+  item_id: string;
+  goods_description: string;
+  hs_code_gcc12?: string | null;
+  hs_code_wco6?: string | null;
+  quantity: string | number;
+  package_type: string;
+  gross_weight_kg: string | number;
+  net_weight_kg: string | number;
+  customs_value_amount: string | number;
+  customs_value_currency: string;
+  origin: OriginPreferenceSpec;
+  is_reefer: boolean;
+  reefer_spec?: ReeferSpecification | null;
+  is_dangerous_goods: boolean;
+  hazmat_spec?: HazmatSpecification | null;
+  regulatory_permits: string[];
+}
+
+export interface UtilizedTransportEquipment {
+  equipment_reference: string;
+  iso_size_type_code: string;
+  seal_numbers: string[];
+  tare_weight_kg?: string | number | null;
+  verified_gross_mass_kg?: string | number | null;
+  stowage_baplie_pos?: string | null;
+}
+
+export interface ChangeOfDestinationSpec {
+  vessel_imo: string;
+  voyage_number: string;
+  container_iso6346: string;
+  stowage_baplie_pos: string;
+  accessible_without_restow: boolean;
+  estimated_restow_moves: number;
+  carrier_cod_cutoff_utc: string;
+  original_port_of_discharge: string;
+  requested_port_of_discharge: string;
+  cod_request_submitted_utc: string;
+}
+
+export interface TransportLeg {
+  leg_sequence: number;
+  mode: CanonicalTransportMode;
+  origin_locode: string;
+  destination_locode: string;
+  carrier_code: string;
+  voyage_or_flight_number: string;
+  scheduled_departure_utc: string;
+  scheduled_arrival_utc: string;
+}
+
+export interface ShipmentRequest {
+  internal_request_id: string;
+  transport_mode: CanonicalTransportMode;
+  transport_document_ref: string;
+  document_status: DocumentStatus;
+  customs_regime?: GCCCustomsRegime | null;
+  issue_date: string;
+  incoterms_code: string;
+  mofaic_attested_invoice?: boolean | null;
+  mofaic_attestation_ref?: string | null;
+  parties: PartyIdentification[];
+  legs: TransportLeg[];
+  consignment_items: ConsignmentItem[];
+  utilized_equipments: UtilizedTransportEquipment[];
+  cod_amendment?: ChangeOfDestinationSpec | null;
+}
+
+export type ValidationReasonCode =
+  | 'MISSING_MANDATORY_FIELD'
+  | 'AMBIGUOUS_CANDIDATES'
+  | 'UNVERIFIED_FORMAT'
+  | 'CONFLICTING_DOCUMENT_VALUES'
+  | 'CUTOFF_VIOLATION';
+
+export interface MissingComplianceField {
+  field_path: string;
+  reason_code: ValidationReasonCode;
+  message: string;
+  candidate_values: string[];
+  regulatory_reference: string;
+}
+
+export interface ValidationHold {
+  status: 'VALIDATION_HOLD';
+  autonomous_dispatch_blocked: true;
+  requires_human_review: true;
+  internal_request_id: string;
+  held_at_utc: string;
+  missing_compliance_fields: MissingComplianceField[];
+}
+
+export type MissingComplianceFields = ValidationHold;
+
+export interface EdgeTelemetryOverride {
+  edge_id: string;
+  base_hours?: number | null;
+  base_cost_per_teu_usd?: number | null;
+  thermal_drift_c_per_hour?: number | null;
+  capacity_teu?: number | null;
+  source_provider: string;
+  updated_at_utc: string;
+}
+
+export interface TelemetrySnapshot {
+  disruption: DisruptionState;
+  edge_overrides: Record<string, EdgeTelemetryOverride>;
+  last_updated_utc: string;
+  active_sources: string[];
+  event_count: number;
+}

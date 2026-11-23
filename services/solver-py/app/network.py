@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from app.models import CorridorEdge, CorridorNode, CorridorTopology, TransportMode
+from dataclasses import dataclass
+
+from app.models import (
+    CorridorEdge,
+    CorridorNode,
+    CorridorTopology,
+    DisruptionState,
+    GNNWarmStartMetrics,
+    ShipmentSpec,
+    TransportMode,
+)
 
 # Phase 0 Note: AEDWC (Al Maktoum Int'l) and node/edge metadata fields such as
 # `daily_demurrage_usd`, `capacity_teu`, and `co2_kg_per_teu` are provisioned for Phase 1/2
@@ -408,7 +418,8 @@ def get_node_map() -> dict[str, CorridorNode]:
     return {node.id: node for node in CORRIDOR_NODES}
 
 
-# Explicit curated corridor paths from INNSA -> EUFRA so MILP and Z3 evaluate all multimodal combinations cleanly
+# Reference corridor routes for canonical route_id/name labeling and UI comparison rows.
+# Primary optimization uses the Time-Expanded Network Flow MILP + Z3 Benders lazy cuts below.
 CANDIDATE_ROUTES: list[dict[str, object]] = [
     {
         "route_id": "ROUTE_BASELINE_HORMUZ_SEA",
@@ -475,3 +486,252 @@ CANDIDATE_ROUTES: list[dict[str, object]] = [
         "is_baseline": False,
     },
 ]
+
+RED_SEA_EDGE_IDS: frozenset[str] = frozenset({"E_AEJEA_EUFRA_SEA", "E_AEKHL_EUFRA_SEA"})
+
+# Optional feeder & air-cargo arcs connecting Al Maktoum Int'l (AEDWC) for multi-hub expansion
+AEDWC_EXTENSION_EDGES: list[CorridorEdge] = [
+    CorridorEdge(
+        id="E_AEJEA_AEDWC_SHUTTLE",
+        source="AEJEA",
+        target="AEDWC",
+        mode=TransportMode.GREEN_CORRIDOR_TRUCK,
+        label="Jebel Ali → Al Maktoum Int'l (Dubai Logistics Corridor Bonded Shuttle)",
+        base_hours=1.2,
+        base_cost_per_teu_usd=175.0,
+        distance_km=28.0,
+        co2_kg_per_teu=16.0,
+        touches_jebel_ali=True,
+        has_continuous_customs_seal=True,
+        is_green_corridor=True,
+        active_cold_chain=True,
+        thermal_drift_c_per_hour=0.004,
+        capacity_teu=350,
+    ),
+    CorridorEdge(
+        id="E_AEFJR_AEDWC_RAIL",
+        source="AEFJR",
+        target="AEDWC",
+        mode=TransportMode.ETIHAD_RAIL_BONDED,
+        label="Fujairah → Al Maktoum Int'l (Bonded Rail/Reefer Bridge)",
+        base_hours=4.2,
+        base_cost_per_teu_usd=405.0,
+        distance_km=195.0,
+        co2_kg_per_teu=39.0,
+        has_continuous_customs_seal=True,
+        is_green_corridor=True,
+        active_cold_chain=True,
+        thermal_drift_c_per_hour=0.005,
+        capacity_teu=350,
+    ),
+    CorridorEdge(
+        id="E_AEDWC_EUFRA_AIR",
+        source="AEDWC",
+        target="EUFRA",
+        mode=TransportMode.AIR_CARGO,
+        label="Al Maktoum Int'l (SkyCargo Pharma) → Frankfurt",
+        base_hours=7.4,
+        base_cost_per_teu_usd=4920.0,
+        distance_km=4860.0,
+        co2_kg_per_teu=3920.0,
+        has_continuous_customs_seal=True,
+        is_green_corridor=True,
+        active_cold_chain=True,
+        thermal_drift_c_per_hour=0.003,
+        capacity_teu=180,
+    ),
+]
+
+
+@dataclass(frozen=True)
+class TimeExpandedVertex:
+    """A (physical_node, schedule_wave) vertex or super-sink in the time-expanded graph."""
+
+    index: int
+    node_id: str
+    wave: int
+    label: str
+
+
+@dataclass(frozen=True)
+class TimeExpandedArc:
+    """Directed arc in the time-expanded graph (transit, hub dwell, or sink collection)."""
+
+    arc_idx: int
+    source_v: int
+    target_v: int
+    kind: str  # "transit" | "dwell" | "sink"
+    edge: CorridorEdge | None
+    node_id: str
+    wave: int
+    hours: float
+    cost_per_teu_usd: float
+    capacity_teu: int
+    gnn_risk: float
+
+
+@dataclass(frozen=True)
+class TimeExpandedGraph:
+    """Time-expanded multi-wave network graph for HiGHS flow MILP."""
+
+    origin_node: str
+    destination_node: str
+    num_waves: int
+    wave_dwell_hours: float
+    vertices: list[TimeExpandedVertex]
+    arcs: list[TimeExpandedArc]
+    physical_edges: list[CorridorEdge]
+    edge_index_by_id: dict[str, int]
+    source_vertex_idx: int
+    sink_vertex_idx: int
+
+
+def compute_edge_economics(
+    edge: CorridorEdge,
+    shipment: ShipmentSpec,
+    disruption: DisruptionState,
+) -> tuple[float, float]:
+    """Return (arc_hours, cost_per_teu_usd) including delays, surcharges, and congestion demurrage."""
+    delay_hours = 0.0
+    if edge.passes_hormuz:
+        delay_hours += disruption.hormuz_delay_hours
+    if edge.touches_jebel_ali:
+        delay_hours += disruption.jebel_ali_congestion_hours
+
+    arc_hours = edge.base_hours + delay_hours
+    freight_per_teu = edge.base_cost_per_teu_usd
+    if edge.id in RED_SEA_EDGE_IDS:
+        freight_per_teu += disruption.red_sea_surcharge_usd
+    demurrage_per_teu = (delay_hours / 24.0) * shipment.demurrage_usd_per_teu_day
+    return arc_hours, freight_per_teu + demurrage_per_teu
+
+
+def build_time_expanded_graph(
+    origin_node: str,
+    destination_node: str,
+    shipment: ShipmentSpec,
+    disruption: DisruptionState,
+    nodes: list[CorridorNode] | None = None,
+    edges: list[CorridorEdge] | None = None,
+    num_waves: int = 5,
+    wave_dwell_hours: float = 12.0,
+    gnn_metrics: GNNWarmStartMetrics | None = None,
+) -> TimeExpandedGraph:
+    """Expand the Gulf Corridor graph over discrete schedule waves and intermodal dwell arcs."""
+    active_nodes = list(CORRIDOR_NODES if nodes is None else nodes)
+    active_edges = list(CORRIDOR_EDGES if edges is None else edges)
+    node_map = {n.id: n for n in active_nodes}
+
+    if origin_node not in node_map:
+        raise ValueError(f"Unknown origin_node '{origin_node}' not in corridor topology.")
+    if destination_node not in node_map:
+        raise ValueError(f"Unknown destination_node '{destination_node}' not in corridor topology.")
+
+    vertices: list[TimeExpandedVertex] = []
+    vertex_idx: dict[tuple[str, int], int] = {}
+    for node in active_nodes:
+        for w in range(num_waves):
+            idx = len(vertices)
+            vertex_idx[(node.id, w)] = idx
+            vertices.append(
+                TimeExpandedVertex(
+                    index=idx,
+                    node_id=node.id,
+                    wave=w,
+                    label=f"{node.id}@W{w}",
+                )
+            )
+
+    sink_idx = len(vertices)
+    vertices.append(
+        TimeExpandedVertex(
+            index=sink_idx,
+            node_id=destination_node,
+            wave=-1,
+            label=f"SINK({destination_node})",
+        )
+    )
+
+    risk_scores = gnn_metrics.edge_risk_scores if gnn_metrics is not None else {}
+    # Order physical edges by ascending GNN risk so low-risk corridors lead MILP variable order
+    ordered_edges = sorted(
+        active_edges,
+        key=lambda e: (risk_scores.get(e.id, 0.5), e.base_cost_per_teu_usd, e.id),
+    )
+    edge_index_by_id = {e.id: idx for idx, e in enumerate(ordered_edges)}
+
+    arcs: list[TimeExpandedArc] = []
+
+    # 1. Scheduled transit arcs across waves
+    for edge in ordered_edges:
+        if edge.source not in node_map or edge.target not in node_map:
+            continue
+        arc_hours, cost_per_teu = compute_edge_economics(edge, shipment, disruption)
+        risk = float(risk_scores.get(edge.id, 0.5))
+        for w in range(num_waves):
+            arcs.append(
+                TimeExpandedArc(
+                    arc_idx=len(arcs),
+                    source_v=vertex_idx[(edge.source, w)],
+                    target_v=vertex_idx[(edge.target, w)],
+                    kind="transit",
+                    edge=edge,
+                    node_id=edge.source,
+                    wave=w,
+                    hours=arc_hours,
+                    cost_per_teu_usd=cost_per_teu,
+                    capacity_teu=edge.capacity_teu,
+                    gnn_risk=risk,
+                )
+            )
+
+    # 2. Intermodal transfer / hub dwell arcs (w -> w + 1) incurring node daily_demurrage_usd
+    for node in active_nodes:
+        dwell_cost = (wave_dwell_hours / 24.0) * node.daily_demurrage_usd
+        for w in range(num_waves - 1):
+            arcs.append(
+                TimeExpandedArc(
+                    arc_idx=len(arcs),
+                    source_v=vertex_idx[(node.id, w)],
+                    target_v=vertex_idx[(node.id, w + 1)],
+                    kind="dwell",
+                    edge=None,
+                    node_id=node.id,
+                    wave=w,
+                    hours=wave_dwell_hours,
+                    cost_per_teu_usd=dwell_cost,
+                    capacity_teu=max(10_000, shipment.teu_count),
+                    gnn_risk=0.05,
+                )
+            )
+
+    # 3. Destination wave-collection sink arcs
+    for w in range(num_waves):
+        arcs.append(
+            TimeExpandedArc(
+                arc_idx=len(arcs),
+                source_v=vertex_idx[(destination_node, w)],
+                target_v=sink_idx,
+                kind="sink",
+                edge=None,
+                node_id=destination_node,
+                wave=w,
+                hours=0.0,
+                cost_per_teu_usd=0.0,
+                capacity_teu=max(10_000, shipment.teu_count),
+                gnn_risk=0.0,
+            )
+        )
+
+    return TimeExpandedGraph(
+        origin_node=origin_node,
+        destination_node=destination_node,
+        num_waves=num_waves,
+        wave_dwell_hours=wave_dwell_hours,
+        vertices=vertices,
+        arcs=arcs,
+        physical_edges=ordered_edges,
+        edge_index_by_id=edge_index_by_id,
+        source_vertex_idx=vertex_idx[(origin_node, 0)],
+        sink_vertex_idx=sink_idx,
+    )

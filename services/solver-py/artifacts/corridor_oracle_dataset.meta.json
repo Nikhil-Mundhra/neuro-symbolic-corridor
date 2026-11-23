@@ -1,0 +1,16 @@
+{
+  "num_samples": 900,
+  "seed": 42,
+  "train_count": 630,
+  "val_count": 135,
+  "test_count": 135,
+  "feasible_samples": 731,
+  "all_unsat_samples": 169,
+  "profiles": [
+    "pharma_cold_chain",
+    "ev_automotive_jit",
+    "industrial_bulk"
+  ],
+  "num_nodes": 10,
+  "num_edges": 15
+}

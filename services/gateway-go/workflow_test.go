@@ -93,3 +93,33 @@ func TestBuildDispatchedAPIsMatchesCustomsPayloads(t *testing.T) {
 		t.Fatalf("expected 4 APIs for green+air route, got %v", airAPIs)
 	}
 }
+
+func TestTelemetryInverseCongestionTrapAndSSEBroadcast(t *testing.T) {
+	store := NewWorkflowStore()
+	ch := store.Subscribe()
+	defer store.Unsubscribe(ch)
+
+	// Reset Hormuz delay to 0 via P44, then trigger MarineTraffic AEJEA call drop >50%
+	_, err := store.ApplyProject44Webhook([]byte(`{"masterShipmentId":"P44-99","hormuz_delay_hours":0,"jebel_ali_congestion_hours":8}`))
+	if err != nil {
+		t.Fatalf("ApplyProject44Webhook failed: %v", err)
+	}
+	<-ch // drain P44 event
+
+	snap, err := store.ApplyPollingRefresh([]byte(`{"marine_traffic":[{"unlocode":"AEJEA","median_anchorage_time_hours":4.0,"median_port_time_hours":5.0,"call_count":15,"baseline_call_count":100}]}`))
+	if err != nil {
+		t.Fatalf("ApplyPollingRefresh failed: %v", err)
+	}
+	if snap.Disruption.HormuzDelayHours < 72.0 {
+		t.Fatalf("Inverse Congestion Trap failed to escalate HormuzDelayHours: %v", snap.Disruption.HormuzDelayHours)
+	}
+
+	select {
+	case msg := <-ch:
+		if !strings.Contains(string(msg), `"event":"telemetry_update"`) {
+			t.Fatalf("expected telemetry_update SSE event, got %s", string(msg))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for telemetry_update SSE broadcast")
+	}
+}

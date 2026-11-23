@@ -1,6 +1,6 @@
-# Neuro-Symbolic Corridor Solver
+# ParetoLane
 
-**Autonomous, Formally Verified Multi-Modal Rerouting & Customs Compliance for the UAE–Oman–India–Europe Corridor.**
+**The Autonomous Cargo Rerouting & Customs Engine** — *Autonomous, Formally Verified Neuro-Symbolic Multi-Modal Rerouting & Customs Compliance for the UAE–Oman–India–Europe Corridor.*
 
 Built for the **Nov 17 BTI Startup Expo**, **Dec 11 NYUADEIP Priority Deadline**, and the **2027 startAD / Hub71** roadmap.
 
@@ -10,7 +10,7 @@ Built for the **Nov 17 BTI Startup Expo**, **Dec 11 NYUADEIP Priority Deadline**
 Every year, billions of dollars in trade moving between **India, the UAE, Oman, and Europe** are delayed by maritime choke points in the Strait of Hormuz and Red Sea, port berth congestion, and cold-chain failures. When a ship is delayed or a refrigerated container malfunctions, freight forwarders lose **\$150–\$300 per container per day** in port demurrage fees—or risk losing **100% of high-value pharmaceutical cargo** to spoilage. Existing logistics software only *shows* that a shipment is late; it cannot automatically re-route cargo across sea, land, and air while guaranteeing customs compliance.
 
 ### Our Solution
-The **Neuro-Symbolic Corridor Solver** is an autonomous decision and customs-execution engine for GCC freight forwarders, ports, and air cargo carriers:
+**ParetoLane** (powered by our **Neuro-Symbolic Corridor Solver**) is an autonomous decision and customs-execution engine for GCC freight forwarders, ports, and air cargo carriers:
 - **Instant Multi-Modal Rerouting:** When a disruption hits (e.g., a 72-hour delay at the Strait of Hormuz), our engine shifts cargo in real time—for example, offloading at **Fujairah** or **Oman (Sohar/Salalah)** onto **Oman–UAE Sealed-Truck "Green Corridor"** lanes or **Etihad Rail**, and connecting to **Etihad Cargo** at Zayed International Airport.
 - **Zero Customs Mistakes:** Unlike generic AI chatbots that can invent tariff rules, every route is mathematically checked against **GCC Unified Customs Law**, **UAE–India CEPA (0% duty) rules of origin**, and **2°C–8°C pharmaceutical cold-chain limits** before it is ever shown to a dispatcher.
 - **1-Click Execution:** Dispatchers see the exact dollar and dirham savings side-by-side and approve the reroute in one click, automatically generating ready-to-submit customs and booking payloads for **Dubai Trade**, **Maqta Gateway**, **Oman Bayan**, and **Etihad Cargo**.

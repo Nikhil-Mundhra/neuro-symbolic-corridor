@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -263,5 +266,105 @@ func TestConcurrentWorkflowIngestion(t *testing.T) {
 	recent := gw.store.ListRecent(50)
 	if len(recent) != 20 {
 		t.Fatalf("expected 20 stored workflows, got %d", len(recent))
+	}
+}
+
+func TestTelemetryWebhooksPollingAndValidateProxy(t *testing.T) {
+	mockSolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/validate-shipment" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"status":"VALIDATION_HOLD","autonomous_dispatch_blocked":true,"requires_human_review":true}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockSolver.Close()
+
+	gw := NewGatewayServer(mockSolver.URL)
+	handler := gw.Routes()
+
+	// 1. Validate-shipment proxy passthrough
+	valReq := httptest.NewRequest(http.MethodPost, "/api/v1/validate-shipment", bytes.NewBufferString(`{}`))
+	valRec := httptest.NewRecorder()
+	handler.ServeHTTP(valRec, valReq)
+	if valRec.Code != http.StatusUnprocessableEntity || !strings.Contains(valRec.Body.String(), "VALIDATION_HOLD") {
+		t.Fatalf("unexpected validate-shipment proxy response: %d %s", valRec.Code, valRec.Body.String())
+	}
+
+	// 2. Initial telemetry state
+	stReq := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/state", nil)
+	stRec := httptest.NewRecorder()
+	handler.ServeHTTP(stRec, stReq)
+	if stRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on telemetry state, got %d", stRec.Code)
+	}
+
+	// 3. Vizion HMAC-signed webhook
+	t.Setenv("VIZION_WEBHOOK_SECRET", "vizion-secret")
+	vizPayload := []byte(`{"id":"v-1","status":"data_received","payload":{"container_id":"KEIU9000798","carrier_scac":"MAEU","milestones":[{"shipment_location":{"type_code":"RTP","locode":"AEFJR"},"journey_event":{"event_classifier":"ACT","event_type":"ARRI"},"delay_hours":18.5}]}}`)
+	badVizReq := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/webhooks/vizion", bytes.NewReader(vizPayload))
+	badVizReq.Header.Set("X-Vizion-Signature", "sha256=deadbeef")
+	badVizRec := httptest.NewRecorder()
+	handler.ServeHTTP(badVizRec, badVizReq)
+	if badVizRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for bad vizion hmac, got %d", badVizRec.Code)
+	}
+
+	mac := hmac.New(sha256.New, []byte("vizion-secret"))
+	mac.Write(vizPayload)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	okVizReq := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/webhooks/vizion", bytes.NewReader(vizPayload))
+	okVizReq.Header.Set("X-Vizion-Signature", sig)
+	okVizRec := httptest.NewRecorder()
+	handler.ServeHTTP(okVizRec, okVizReq)
+	if okVizRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid vizion webhook, got %d: %s", okVizRec.Code, okVizRec.Body.String())
+	}
+
+	// 4. Carrier Lynx Push webhook
+	t.Setenv("CARRIER_LYNX_API_KEY", "lynx-key-123")
+	badLynxReq := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/webhooks/carrier-lynx", bytes.NewBufferString(`{}`))
+	badLynxReq.Header.Set("x-lynx-api-key", "wrong")
+	badLynxRec := httptest.NewRecorder()
+	handler.ServeHTTP(badLynxRec, badLynxReq)
+	if badLynxRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for invalid lynx key, got %d", badLynxRec.Code)
+	}
+
+	lynxBody := `{"eventId":"lx-1","eventType":"ALARM_TRIGGERED","assetId":"CT-884","truData":{"setPointTemp":5.0,"returnAirTemp":9.8,"ambientTemp":42.0},"alarms":[{"alarmCode":"AL22","severity":"Critical","active":true}]}`
+	okLynxReq := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/webhooks/carrier-lynx", bytes.NewBufferString(lynxBody))
+	okLynxReq.Header.Set("x-lynx-api-key", "lynx-key-123")
+	okLynxRec := httptest.NewRecorder()
+	handler.ServeHTTP(okLynxRec, okLynxReq)
+	if okLynxRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for carrier lynx webhook, got %d", okLynxRec.Code)
+	}
+
+	// 5. Project44 webhook + MarineTraffic/Xeneta polling refresh
+	p44Req := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/webhooks/project44", bytes.NewBufferString(`{"masterShipmentId":"P44-1","jebel_ali_congestion_hours":30}`))
+	p44Rec := httptest.NewRecorder()
+	handler.ServeHTTP(p44Rec, p44Req)
+	if p44Rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for p44 webhook, got %d", p44Rec.Code)
+	}
+
+	refBody := `{"marine_traffic":[{"unlocode":"AEJEA","median_anchorage_time_hours":8.0,"median_port_time_hours":4.0,"call_count":20,"baseline_call_count":100},{"unlocode":"AEFJR","median_anchorage_time_hours":168.0,"median_port_time_hours":12.0}],"xeneta":{"red_sea_surcharge_usd":2450,"edge_rates":{"E_AEAUH_EUFRA_AIR":5100}}}`
+	refReq := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/refresh", bytes.NewBufferString(refBody))
+	refRec := httptest.NewRecorder()
+	handler.ServeHTTP(refRec, refReq)
+	if refRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for telemetry refresh, got %d", refRec.Code)
+	}
+
+	var snap TelemetrySnapshot
+	if err := json.Unmarshal(refRec.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("unmarshal TelemetrySnapshot: %v", err)
+	}
+	if snap.Disruption.HormuzDelayHours < 72.0 || snap.Disruption.RedSeaSurchargeUSD != 2450.0 || !snap.Disruption.ReeferFault {
+		t.Fatalf("unexpected telemetry snapshot state: %+v", snap)
+	}
+	if _, ok := snap.EdgeOverrides["E_INNSA_AEFJR_SEA"]; !ok {
+		t.Fatalf("expected E_INNSA_AEFJR_SEA override from MarineTraffic VI06 refresh")
 	}
 }

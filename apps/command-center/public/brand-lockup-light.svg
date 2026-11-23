@@ -23,10 +23,10 @@
     <text x="0" y="16" fill="#64748b" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="9" font-weight="700" letter-spacing="1.5">NEURO · SYMBOLIC</text>
     
     <!-- Primary Product Wordmark -->
-    <text x="0" y="34" fill="#090d16" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="800" letter-spacing="-0.3">CORRIDOR</text>
+    <text x="0" y="34" fill="#090d16" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="800" letter-spacing="-0.3">PARETOLANE</text>
     
     <!-- Certified Invariant Pill Badge -->
-    <rect x="96" y="23" width="76" height="15" rx="3" fill="rgba(2, 132, 199, 0.08)" stroke="rgba(2, 132, 199, 0.20)"/>
-    <text x="101" y="33.5" fill="#0284c7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="7.5" font-weight="700" letter-spacing="0.5">Z3 VERIFIED</text>
+    <rect x="114" y="23" width="76" height="15" rx="3" fill="rgba(2, 132, 199, 0.08)" stroke="rgba(2, 132, 199, 0.20)"/>
+    <text x="119" y="33.5" fill="#0284c7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="7.5" font-weight="700" letter-spacing="0.5">Z3 VERIFIED</text>
   </g>
 </svg>

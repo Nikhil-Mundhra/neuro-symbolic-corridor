@@ -4,8 +4,22 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
 
-from app.models import DisruptionState, ParseBoLResponse, ScenarioPreset, ShipmentSpec
+from pydantic import ValidationError
+
+from app.models import (
+    DisruptionState,
+    MissingComplianceField,
+    ParseBoLResponse,
+    ScenarioPreset,
+    ShipmentRequest,
+    ShipmentSpec,
+    ValidationHold,
+)
 
 SCENARIO_PRESETS: list[ScenarioPreset] = [
     ScenarioPreset(
@@ -200,3 +214,220 @@ def parse_bol_text(raw_text: str) -> ParseBoLResponse:
         extraction_ms=elapsed_ms,
         extracted_tokens=tokens,
     )
+
+
+@dataclass
+class ExtractionCandidate:
+    """Candidate token values extracted for a single compliance field across source documents."""
+
+    field_path: str
+    values: list[str] = field(default_factory=list)
+
+
+class ZeroHallucinationParser:
+    """Deterministic parser state machine: never injects synthetic defaults for compliance fields."""
+
+    _PATTERNS: dict[str, re.Pattern[str]] = {
+        "hs_code": re.compile(r"(?im)\bHS(?:\s*CODE)?\s*[:#-]?\s*(\d{6,12})\b"),
+        "coo_number": re.compile(
+            r"(?im)\b(?:COO|CERTIFICATE\s+OF\s+ORIGIN)\s*(?:NO\.?|#)?\s*[:#-]?\s*([A-Z0-9/-]{5,32})\b"
+        ),
+        "cepa_pct": re.compile(
+            r"(?im)\bCEPA\s*(?:VALUE[- ]ADD(?:ED)?)?\s*[:#-]?\s*(\d{1,3}(?:\.\d{1,2})?)\s*%"
+        ),
+        "uae_trn": re.compile(r"(?im)\bTRN\s*[:#-]?\s*(100\d{12})\b"),
+        "eori": re.compile(r"(?im)\bEORI\s*[:#-]?\s*([A-Z]{2}[A-Z0-9]{8,15})\b"),
+        "un_hazmat": re.compile(r"(?im)\b(UN\d{4})\s*(?:CLASS|DIV)?\s*([1-9](?:\.[1-6])?)?\b"),
+        "temp_range": re.compile(
+            r"(?im)\bTEMP(?:ERATURE)?\s*[:#-]?\s*(-?\d+(?:\.\d+)?)\s*(?:TO|\.\.|-)\s*(-?\d+(?:\.\d+)?)\s*C?\b"
+        ),
+    }
+
+    def extract_candidates(self, document_texts: dict[str, str]) -> dict[str, ExtractionCandidate]:
+        """Extract unique candidate tokens per compliance field across uploaded document texts."""
+        candidates: dict[str, ExtractionCandidate] = {
+            k: ExtractionCandidate(field_path=k) for k in self._PATTERNS
+        }
+        for text in document_texts.values():
+            for key, pattern in self._PATTERNS.items():
+                for match in pattern.finditer(text):
+                    val = " ".join(g for g in match.groups() if g is not None).strip()
+                    if val and val not in candidates[key].values:
+                        candidates[key].values.append(val)
+        return candidates
+
+    @staticmethod
+    def _collect_corridor_issues(shipment: ShipmentRequest) -> list[MissingComplianceField]:
+        """Enforce the 6 corridor-aware compliance gates without mutating or defaulting fields."""
+        issues: list[MissingComplianceField] = []
+        touches_gcc_customs = any(
+            leg.origin_locode.startswith(("AE", "OM"))
+            or leg.destination_locode.startswith(("AE", "OM"))
+            for leg in shipment.legs
+        )
+        touches_eu_ics2 = any(
+            leg.destination_locode.startswith(("EU", "DE")) for leg in shipment.legs
+        )
+        touches_dubai = any(
+            loc in {"AEJEA", "AEDXB", "AEDWC", "AEPRH"}
+            for leg in shipment.legs
+            for loc in (leg.origin_locode, leg.destination_locode)
+        )
+
+        mofaic_threshold_triggered = False
+        for idx, item in enumerate(shipment.consignment_items):
+            if not item.hs_code_wco6 and not item.hs_code_gcc12:
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"consignment_items[{idx}].hs_code_wco6",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="No HS code present; synthetic default injection is prohibited.",
+                        candidate_values=[],
+                        regulatory_reference="WCO HS / Zero Regulatory Hallucination Invariant",
+                    )
+                )
+            if touches_gcc_customs and not item.hs_code_gcc12:
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"consignment_items[{idx}].hs_code_gcc12",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="12-digit GCC/UAE/Oman HS code is required in 2026; legacy 6/8-digit codes are rejected.",
+                        candidate_values=[item.hs_code_wco6] if item.hs_code_wco6 else [],
+                        regulatory_reference="UAE FCA / Mirsal 2 / Oman Bayan 12-Digit Tariff (2026)",
+                    )
+                )
+            if touches_gcc_customs and not item.origin.certificate_of_origin_no:
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"consignment_items[{idx}].origin.certificate_of_origin_no",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="Certificate of Origin number is mandatory for GCC customs declarations.",
+                        candidate_values=[],
+                        regulatory_reference="Mirsal 2 / Oman Bayan Required Documents",
+                    )
+                )
+            if (
+                item.is_dangerous_goods
+                and item.hazmat_spec
+                and not item.hazmat_spec.msds_document_ref
+            ):
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"consignment_items[{idx}].hazmat_spec.msds_document_ref",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="MSDS reference required prior to departure for dangerous goods.",
+                        candidate_values=[],
+                        regulatory_reference="Dubai Customs Pre-Approval Rules (Chemicals/Batteries)",
+                    )
+                )
+            if item.customs_value_currency == "AED" and item.customs_value_amount >= Decimal(
+                "10000"
+            ):
+                mofaic_threshold_triggered = True
+
+        if touches_dubai and mofaic_threshold_triggered and not shipment.mofaic_attested_invoice:
+            issues.append(
+                MissingComplianceField(
+                    field_path="mofaic_attested_invoice",
+                    reason_code="MISSING_MANDATORY_FIELD",
+                    message="MOFAIC invoice attestation required for UAE invoices >= AED 10,000.",
+                    candidate_values=[],
+                    regulatory_reference="UAE MOFAIC Commercial Invoice Attestation",
+                )
+            )
+
+        for idx, party in enumerate(shipment.parties):
+            if party.country_code == "AE" and not party.uae_trn:
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"parties[{idx}].uae_trn",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="15-digit UAE TRN starting with 100 is required for UAE parties.",
+                        candidate_values=[],
+                        regulatory_reference="UAE FTA (Cabinet Decision No. 52/2017)",
+                    )
+                )
+            if touches_eu_ics2 and party.role.value == "CNE" and not party.eori_number:
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"parties[{idx}].eori_number",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="Consignee EORI number is mandatory for EU ICS2 advance cargo filing.",
+                        candidate_values=[],
+                        regulatory_reference="EU ICS2 Entry Summary Declaration",
+                    )
+                )
+            if party.country_code in {"DE", "FR", "NL", "BE", "IT", "ES"} and not party.eori_number:
+                issues.append(
+                    MissingComplianceField(
+                        field_path=f"parties[{idx}].eori_number",
+                        reason_code="MISSING_MANDATORY_FIELD",
+                        message="EU-established shipper/consignee EORI number is missing.",
+                        candidate_values=[],
+                        regulatory_reference="EU ICS2 Economic Operator Registration",
+                    )
+                )
+        return issues
+
+    def evaluate(
+        self,
+        raw_payload: dict[str, Any],
+        document_texts: dict[str, str] | None = None,
+    ) -> ShipmentRequest | ValidationHold:
+        """Validate structured shipment payload and cross-document consistency without guessing."""
+        issues: list[MissingComplianceField] = []
+        req_id = str(
+            raw_payload.get("internal_request_id")
+            or raw_payload.get("internalRequestId")
+            or "UNKNOWN"
+        )
+
+        if document_texts:
+            extracted = self.extract_candidates(document_texts)
+            for key, cand in extracted.items():
+                if len(cand.values) > 1:
+                    issues.append(
+                        MissingComplianceField(
+                            field_path=key,
+                            reason_code="CONFLICTING_DOCUMENT_VALUES",
+                            message=f"Conflicting {key} values detected across source documents.",
+                            candidate_values=cand.values,
+                            regulatory_reference="Mirsal 2 / Bayan Cross-Document Integrity",
+                        )
+                    )
+
+        shipment: ShipmentRequest | None = None
+        try:
+            shipment = ShipmentRequest.model_validate(raw_payload)
+        except ValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(x) for x in err["loc"])
+                issues.append(
+                    MissingComplianceField(
+                        field_path=loc,
+                        reason_code=(
+                            "UNVERIFIED_FORMAT"
+                            if "value_error" in err["type"]
+                            else "MISSING_MANDATORY_FIELD"
+                        ),
+                        message=err["msg"],
+                        candidate_values=[],
+                        regulatory_reference="Canonical Schema / ISO 6346 / DCSA eBL 3.0",
+                    )
+                )
+
+        if shipment is None:
+            return ValidationHold(
+                internal_request_id=req_id,
+                held_at_utc=datetime.now(UTC),
+                missing_compliance_fields=issues,
+            )
+
+        issues.extend(self._collect_corridor_issues(shipment))
+        if issues:
+            return ValidationHold(
+                internal_request_id=shipment.internal_request_id,
+                held_at_utc=datetime.now(UTC),
+                missing_compliance_fields=issues,
+            )
+        return shipment

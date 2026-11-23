@@ -133,8 +133,8 @@ def test_property_milp_optimality_and_pareto_monotonicity(
     except NoFeasibleRouteError:
         return
 
-    assert len(candidates) == len(CANDIDATE_ROUTES)
-    assert len(certificates) == len(CANDIDATE_ROUTES)
+    assert len(candidates) >= 1
+    assert len(certificates) == len(candidates)
     assert mip_gap == 0.0
 
     sat_candidates = [c for c in candidates if c.z3_status == "SAT"]

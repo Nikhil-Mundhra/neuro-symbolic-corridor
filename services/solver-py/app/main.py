@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.customs_payloads import build_customs_payloads
 from app.gnn_warmstart import compute_gnn_warmstart
@@ -19,9 +21,10 @@ from app.models import (
     SolveRequest,
     SolveResponse,
     StageLatency,
+    ValidationHold,
 )
 from app.network import CORRIDOR_EDGES, get_topology
-from app.parser import get_scenarios, parse_bol_text
+from app.parser import ZeroHallucinationParser, get_scenarios, parse_bol_text
 
 app = FastAPI(
     title="Neuro-Symbolic Corridor Solver (Python Z3 + HiGHS Core)",
@@ -54,6 +57,17 @@ def scenarios() -> list[ScenarioPreset]:
 @app.post("/parse-bol", response_model=ParseBoLResponse)
 def parse_bol(req: ParseBoLRequest) -> ParseBoLResponse:
     return parse_bol_text(req.raw_text)
+
+
+@app.post("/validate-shipment")
+def validate_shipment(payload: dict[str, Any]) -> JSONResponse:
+    """Zero-hallucination validation gate returning ShipmentRequest (200) or ValidationHold (422)."""
+    raw_shipment = payload.get("shipment", payload)
+    doc_texts = payload.get("document_texts")
+    result = ZeroHallucinationParser().evaluate(raw_shipment, doc_texts)
+    if isinstance(result, ValidationHold):
+        return JSONResponse(status_code=422, content=result.model_dump(mode="json"))
+    return JSONResponse(status_code=200, content=result.model_dump(mode="json"))
 
 
 @app.post("/solve", response_model=SolveResponse)

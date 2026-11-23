@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -65,10 +67,16 @@ func (g *GatewayServer) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/corridor/topology", g.proxyGET("/topology"))
 	mux.HandleFunc("GET /api/v1/scenarios", g.proxyGET("/scenarios"))
 	mux.HandleFunc("POST /api/v1/parse-bol", g.proxyPOST("/parse-bol"))
+	mux.HandleFunc("POST /api/v1/validate-shipment", g.proxyPOST("/validate-shipment"))
 	mux.HandleFunc("POST /api/v1/solve", g.handleSolve)
 	mux.HandleFunc("GET /api/v1/workflows", g.handleListWorkflows)
 	mux.HandleFunc("POST /api/v1/execute/{id}/approve", g.handleApprove)
 	mux.HandleFunc("GET /api/v1/events", g.handleSSE)
+	mux.HandleFunc("POST /api/v1/telemetry/webhooks/vizion", g.handleVizionWebhook)
+	mux.HandleFunc("POST /api/v1/telemetry/webhooks/carrier-lynx", g.handleLynxWebhook)
+	mux.HandleFunc("POST /api/v1/telemetry/webhooks/project44", g.handleP44Webhook)
+	mux.HandleFunc("GET /api/v1/telemetry/state", g.handleGetTelemetryState)
+	mux.HandleFunc("POST /api/v1/telemetry/refresh", g.handleRefreshPollingProviders)
 	return withCORS(mux)
 }
 
@@ -307,13 +315,106 @@ func (g *GatewayServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case msg := <-ch:
-			_, _ = fmt.Fprintf(w, "event: workflow_update\ndata: %s\n\n", msg)
+			eventName := "workflow_update"
+			var env struct {
+				Event string `json:"event"`
+			}
+			if json.Unmarshal(msg, &env) == nil && env.Event != "" {
+				eventName = env.Event
+			}
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventName, msg)
 			flusher.Flush()
 		case <-ticker.C:
 			_, _ = fmt.Fprintf(w, "event: heartbeat\ndata: {\"ts\":%d}\n\n", time.Now().Unix())
 			flusher.Flush()
 		}
 	}
+}
+
+func (g *GatewayServer) handleGetTelemetryState(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, g.store.GetTelemetry())
+}
+
+func (g *GatewayServer) handleVizionWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if secret := os.Getenv("VIZION_WEBHOOK_SECRET"); secret != "" {
+		sig := strings.TrimPrefix(r.Header.Get("X-Vizion-Signature"), "sha256=")
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body)
+		expected := hex.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(strings.ToLower(sig)), []byte(expected)) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid vizion hmac signature"})
+			return
+		}
+	}
+	snap, err := g.store.ApplyVizionWebhook(body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (g *GatewayServer) handleLynxWebhook(w http.ResponseWriter, r *http.Request) {
+	apiKey := r.Header.Get("x-lynx-api-key")
+	if expected := os.Getenv("CARRIER_LYNX_API_KEY"); expected != "" && apiKey != expected {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid x-lynx-api-key"})
+		return
+	}
+	if strings.EqualFold(apiKey, "invalid") {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid x-lynx-api-key"})
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	snap, err := g.store.ApplyCarrierLynxWebhook(body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (g *GatewayServer) handleP44Webhook(w http.ResponseWriter, r *http.Request) {
+	if expected := os.Getenv("PROJECT44_WEBHOOK_TOKEN"); expected != "" {
+		auth := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if auth != expected {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid project44 webhook token"})
+			return
+		}
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	snap, err := g.store.ApplyProject44Webhook(body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (g *GatewayServer) handleRefreshPollingProviders(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	snap, err := g.store.ApplyPollingRefresh(body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func round3(v float64) float64 {

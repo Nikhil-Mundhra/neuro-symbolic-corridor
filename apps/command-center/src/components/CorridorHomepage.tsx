@@ -405,7 +405,7 @@ export function CorridorHomepage({
           <a
             href={isConsoleOnly ? '/' : '#top'}
             className="ds-brand"
-            aria-label="Corridor Studio Home"
+            aria-label="ParetoLane Home"
             onClick={
               isConsoleOnly
                 ? (e) => {
@@ -416,7 +416,7 @@ export function CorridorHomepage({
             }
           >
             <CorridorBrandMark size={28} />
-            <span className="ds-brand-text">Corridor Studio.</span>
+            <span className="ds-brand-text">ParetoLane.</span>
           </a>
 
           {!isConsoleOnly && (
@@ -446,17 +446,19 @@ export function CorridorHomepage({
             >
               {isConsoleOnly ? 'Full Experience' : 'Console Only'}
             </button>
-            <a
-              href="/twin"
-              className="ds-cta-pill"
-              onClick={(e) => {
-                e.preventDefault();
-                openLiveTwin();
-              }}
-            >
-              <span>Launch Live Twin</span>
-              <ArrowRight size={14} aria-hidden="true" />
-            </a>
+            {!isConsoleOnly && (
+              <a
+                href="/twin"
+                className="ds-cta-pill"
+                onClick={(e) => {
+                  e.preventDefault();
+                  openLiveTwin();
+                }}
+              >
+                <span>Launch Live Twin</span>
+                <ArrowRight size={14} aria-hidden="true" />
+              </a>
+            )}
           </div>
         </div>
       </header>
@@ -481,8 +483,9 @@ export function CorridorHomepage({
               <span className="ds-hero-h1-suffix">Routing</span>
             </h1>
             <p className="ds-hero-sub">
-              Deterministic multimodal rerouting and Z3 SMT compliance verification across the
-              India, Oman, and UAE trade corridor.
+              The Autonomous Cargo Rerouting &amp; Customs Engine — deterministic multimodal
+              rerouting and Z3 SMT compliance verification across the India, Oman, and UAE trade
+              corridor.
             </p>
             <div className="ds-hero-actions">
               <a
@@ -811,11 +814,12 @@ export function CorridorHomepage({
             <div className="ds-footer-left">
               <div className="ds-footer-brand">
                 <CorridorBrandMark size={26} />
-                <strong>Corridor Studio</strong>
+                <strong>ParetoLane</strong>
               </div>
               <p className="ds-footer-tagline">
-                Engineering formal trust across physical freight links, from Mumbai maritime gates
-                and Fujairah rail bridges to European cold-chain hubs.
+                The Autonomous Cargo Rerouting &amp; Customs Engine — engineering formal trust
+                across physical freight links, from Mumbai maritime gates and Fujairah rail bridges
+                to European cold-chain hubs.
               </p>
               <div className="ds-social-squircles" aria-label="Architecture modules">
                 <a
@@ -881,7 +885,7 @@ export function CorridorHomepage({
               <a href="#insights">Research Briefs</a>
             </nav>
             <div className="ds-footer-copy">
-              <span>Neuro-Symbolic Corridor Studio</span>
+              <span>ParetoLane · Neuro-Symbolic Corridor Engine</span>
               <span>Formal Z3 Verification &amp; HiGHS MILP</span>
             </div>
           </div>

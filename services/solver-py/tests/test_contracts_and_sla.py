@@ -26,19 +26,32 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models import (
     CandidatePathEvaluation,
+    ChangeOfDestinationSpec,
+    ConsignmentItem,
     CorridorEdge,
     CorridorNode,
     CorridorTopology,
     CustomsPayloads,
     DisruptionState,
+    EdgeTelemetryOverride,
     GNNWarmStartMetrics,
+    HazmatSpecification,
+    MissingComplianceField,
+    OriginPreferenceSpec,
     ParetoPoint,
+    PartyIdentification,
+    ReeferSpecification,
     ScenarioPreset,
+    ShipmentRequest,
     ShipmentSpec,
     SolveRequest,
     SolveResponse,
     StageLatency,
+    TelemetrySnapshot,
+    TransportLeg,
     UnitEconomics,
+    UtilizedTransportEquipment,
+    ValidationHold,
     Z3ProofCertificate,
     Z3RuleCheck,
 )
@@ -104,6 +117,19 @@ def test_trilingual_schema_contract_parity() -> None:
         (UnitEconomics, "UnitEconomics"),
         (CustomsPayloads, "CustomsPayloads"),
         (SolveResponse, "SolveResponse"),
+        (PartyIdentification, "PartyIdentification"),
+        (ReeferSpecification, "ReeferSpecification"),
+        (HazmatSpecification, "HazmatSpecification"),
+        (OriginPreferenceSpec, "OriginPreferenceSpec"),
+        (ConsignmentItem, "ConsignmentItem"),
+        (UtilizedTransportEquipment, "UtilizedTransportEquipment"),
+        (ChangeOfDestinationSpec, "ChangeOfDestinationSpec"),
+        (TransportLeg, "TransportLeg"),
+        (ShipmentRequest, "ShipmentRequest"),
+        (MissingComplianceField, "MissingComplianceField"),
+        (ValidationHold, "ValidationHold"),
+        (EdgeTelemetryOverride, "EdgeTelemetryOverride"),
+        (TelemetrySnapshot, "TelemetrySnapshot"),
     ]
 
     for py_model, ts_name in model_to_ts_interface:
@@ -114,7 +140,7 @@ def test_trilingual_schema_contract_parity() -> None:
             f"py_only={py_fields - ts_fields}, ts_only={ts_fields - py_fields}"
         )
 
-    # 2. Verify Go Gateway structs <-> TypeScript & Python telemetry contracts
+    # 2. Verify Go Gateway structs <-> TypeScript & Python telemetry & canonical contracts
     go_stage_fields = _extract_go_json_tags(go_source, "StageTelemetry")
     py_stage_fields = set(StageLatency.model_fields.keys())
     assert go_stage_fields == py_stage_fields
@@ -126,6 +152,29 @@ def test_trilingual_schema_contract_parity() -> None:
     go_receipt_fields = _extract_go_json_tags(go_source, "ApprovalReceipt")
     ts_receipt_fields = _extract_ts_interface_fields(ts_source, "ApprovalReceipt")
     assert go_receipt_fields == ts_receipt_fields
+
+    for py_model, go_name in [
+        (DisruptionState, "DisruptionState"),
+        (EdgeTelemetryOverride, "EdgeTelemetryOverride"),
+        (TelemetrySnapshot, "TelemetrySnapshot"),
+        (PartyIdentification, "PartyIdentification"),
+        (ReeferSpecification, "ReeferSpecification"),
+        (HazmatSpecification, "HazmatSpecification"),
+        (OriginPreferenceSpec, "OriginPreferenceSpec"),
+        (ConsignmentItem, "ConsignmentItem"),
+        (UtilizedTransportEquipment, "UtilizedTransportEquipment"),
+        (ChangeOfDestinationSpec, "ChangeOfDestinationSpec"),
+        (TransportLeg, "TransportLeg"),
+        (ShipmentRequest, "ShipmentRequest"),
+        (MissingComplianceField, "MissingComplianceField"),
+        (ValidationHold, "ValidationHold"),
+    ]:
+        py_fields = set(py_model.model_fields.keys())
+        go_fields = _extract_go_json_tags(go_source, go_name)
+        assert py_fields == go_fields, (
+            f"Schema drift between Python {py_model.__name__} and Go {go_name}: "
+            f"py_only={py_fields - go_fields}, go_only={go_fields - py_fields}"
+        )
 
 
 @pytest.mark.sla

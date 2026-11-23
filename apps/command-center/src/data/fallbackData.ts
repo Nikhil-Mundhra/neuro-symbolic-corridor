@@ -157,4 +157,84 @@ export const FALLBACK_SCENARIOS: ScenarioPreset[] = [
       require_cepa_zero_tariff: true,
     },
   },
+  {
+    id: 'auto-ev-drivetrain-cepa',
+    title: 'EV Drivetrain Gearboxes (CEPA)',
+    subtitle: 'JNPT Mumbai to EU | 12 TEU | 46% Origin Value-Add | JIT Assembly',
+    raw_bol_text:
+      'BILL OF LADING: BOL-INNSA-2026-4419\n' +
+      'SHIPPER: Bharat Forge Precision Mobility Ltd, Pune, IN\n' +
+      'CONSIGNEE: RheinAuto Powertrain Logistics AG, Rotterdam, NL\n' +
+      'CARGO: Precision EV Reduction Gearboxes (Bonded JIT Assembly)\n' +
+      'HS CODE: 8708.40.00 | QUANTITY: 12 TEU | VALUE: USD 920,000\n' +
+      'CEPA ORIGIN VALUE-ADD: 46.0% | INITIAL TEMP: 22.0C | MAX TEMP: 45.0C\n' +
+      'MAX TRANSIT SLA: 460 HOURS | DEMURRAGE RATE: USD 240/TEU/DAY',
+    shipment: {
+      bol_number: 'BOL-INNSA-2026-4419',
+      shipper: 'Bharat Forge Precision Mobility Ltd, Pune',
+      consignee: 'RheinAuto Powertrain Logistics AG, Rotterdam',
+      cargo_description: 'Precision EV Reduction Gearboxes (CEPA 0% Duty)',
+      hs_code: '8708.40.00',
+      origin_node: 'INNSA',
+      destination_node: 'EUFRA',
+      teu_count: 12,
+      cargo_value_usd: 920000,
+      cepa_value_add_pct: 46.0,
+      is_temp_sensitive: false,
+      initial_temp_c: 22.0,
+      max_temp_c: 45.0,
+      max_transit_hours: 460,
+      demurrage_usd_per_teu_day: 240,
+      spoilage_risk_pct_on_breach: 8,
+      value_of_time_usd_per_hour: 165,
+    },
+    default_disruption: {
+      hormuz_delay_hours: 84,
+      jebel_ali_congestion_hours: 36,
+      red_sea_surcharge_usd: 1200,
+      reefer_fault: false,
+      reefer_ambient_drift_c_per_hour: 0.0,
+      require_cepa_zero_tariff: true,
+    },
+  },
+  {
+    id: 'petchem-specialty-polymers',
+    title: 'Specialty Polymers (Baseline Cost)',
+    subtitle: 'JNPT Mumbai to EU | 20 TEU | Non-Perishable Bulk | Baseline Arbitrage',
+    raw_bol_text:
+      'BILL OF LADING: BOL-INNSA-2026-1092\n' +
+      'SHIPPER: Reliance Advanced Materials Ltd, Jamnagar, IN\n' +
+      'CONSIGNEE: EuroChem Industrial Compounding BV, Rotterdam, NL\n' +
+      'CARGO: High-Density Polypropylene Resins (Containerized Bulk)\n' +
+      'HS CODE: 3902.10.00 | QUANTITY: 20 TEU | VALUE: USD 540,000\n' +
+      'CEPA ORIGIN VALUE-ADD: 52.0% | INITIAL TEMP: 25.0C | MAX TEMP: 55.0C\n' +
+      'MAX TRANSIT SLA: 600 HOURS | DEMURRAGE RATE: USD 195/TEU/DAY',
+    shipment: {
+      bol_number: 'BOL-INNSA-2026-1092',
+      shipper: 'Reliance Advanced Materials Ltd, Jamnagar',
+      consignee: 'EuroChem Industrial Compounding BV, Rotterdam',
+      cargo_description: 'High-Density Polypropylene Resins (20 TEU Bulk)',
+      hs_code: '3902.10.00',
+      origin_node: 'INNSA',
+      destination_node: 'EUFRA',
+      teu_count: 20,
+      cargo_value_usd: 540000,
+      cepa_value_add_pct: 52.0,
+      is_temp_sensitive: false,
+      initial_temp_c: 25.0,
+      max_temp_c: 55.0,
+      max_transit_hours: 600,
+      demurrage_usd_per_teu_day: 195,
+      spoilage_risk_pct_on_breach: 0,
+      value_of_time_usd_per_hour: 55,
+    },
+    default_disruption: {
+      hormuz_delay_hours: 0,
+      jebel_ali_congestion_hours: 0,
+      red_sea_surcharge_usd: 0,
+      reefer_fault: false,
+      reefer_ambient_drift_c_per_hour: 0.0,
+      require_cepa_zero_tariff: true,
+    },
+  },
 ];

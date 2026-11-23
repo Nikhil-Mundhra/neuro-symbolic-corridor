@@ -35,7 +35,7 @@ export const CorridorBrandMark: React.FC<CorridorBrandMarkProps> = ({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
-      aria-label="Gulf Corridor Maritime Brand Mark"
+      aria-label="ParetoLane Maritime Brand Mark"
       style={{ flexShrink: 0 }}
     >
       {/* Map Location Pin (Gulf Gold) */}
@@ -62,9 +62,11 @@ export const CorridorBrandMark: React.FC<CorridorBrandMarkProps> = ({
       >
         {svgEmblem}
         <div className="corridor-brand-text">
-          <span className="corridor-brand-kicker">Gulf Corridor</span>
+          <span className="corridor-brand-kicker">
+            The Autonomous Cargo Rerouting &amp; Customs Engine
+          </span>
           <div className="corridor-brand-title-row">
-            <span className="corridor-brand-name">Dispatch Twin</span>
+            <span className="corridor-brand-name">ParetoLane</span>
             {showBadge && <span className="corridor-brand-badge">Live</span>}
           </div>
         </div>

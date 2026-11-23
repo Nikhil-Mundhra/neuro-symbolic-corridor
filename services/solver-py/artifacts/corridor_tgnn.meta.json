@@ -1,0 +1,47 @@
+{
+  "model_architecture": "Temporal-GATv2 (2-Layer PyG ONNX)",
+  "feature_dims": {
+    "node": 8,
+    "edge": 23,
+    "delay": 4
+  },
+  "prune_threshold": 0.72,
+  "epochs": 45,
+  "seed": 42,
+  "dataset": {
+    "num_samples": 900,
+    "seed": 42,
+    "train_count": 630,
+    "val_count": 135,
+    "test_count": 135,
+    "feasible_samples": 731,
+    "all_unsat_samples": 169,
+    "profiles": [
+      "pharma_cold_chain",
+      "ev_automotive_jit",
+      "industrial_bulk"
+    ],
+    "num_nodes": 10,
+    "num_edges": 15
+  },
+  "val_metrics": {
+    "bce_loss": 0.12639,
+    "edge_accuracy": 0.9595,
+    "f1_score": 0.9759,
+    "auroc": 0.9901,
+    "optimal_edge_keep_recall": 0.977,
+    "prunable_edge_recall": 0.9267,
+    "unsat_edge_recall": 0.9855
+  },
+  "test_metrics": {
+    "bce_loss": 0.15907,
+    "edge_accuracy": 0.9442,
+    "f1_score": 0.9658,
+    "auroc": 0.9805,
+    "optimal_edge_keep_recall": 0.9653,
+    "prunable_edge_recall": 0.9083,
+    "unsat_edge_recall": 0.9826
+  },
+  "onnx_parity_max_diff": 4.8e-07,
+  "onnx_avg_inference_ms": 0.0548
+}

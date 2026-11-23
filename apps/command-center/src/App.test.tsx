@@ -180,7 +180,23 @@ describe('App', () => {
       expect(screen.getByText(/wf-test123/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/^\$1,850,000$/)).toBeInTheDocument();
+    expect(screen.getAllByText(/^\$1,850,000$/).length).toBeGreaterThanOrEqual(1);
+
+    // Side tablist exists with vertical orientation and switches to Corridor Scenarios
+    const workTabs = screen.getByRole('tablist', { name: /Corridor workstation views/i });
+    expect(workTabs).toHaveAttribute('aria-orientation', 'vertical');
+    const dispatchTab = screen.getByRole('tab', { name: /Dispatch & Map/i });
+    const scenariosTab = screen.getByRole('tab', { name: /Corridor Scenarios/i });
+    fireEvent.keyDown(dispatchTab, { key: 'ArrowDown' });
+    expect(scenariosTab).toHaveAttribute('aria-selected', 'true');
+    expect(
+      screen.getByRole('heading', { name: /EV Drivetrain Gearboxes \(CEPA\)/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /Specialty Polymers \(Baseline Cost\)/i })
+    ).toBeInTheDocument();
+    fireEvent.keyDown(scenariosTab, { key: 'Home' });
+    expect(dispatchTab).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: /Inspect Customs JSON/i }));
     expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
@@ -238,11 +254,15 @@ describe('App', () => {
       dialogEl.removeAttribute('open');
     }
 
-    // 4. Accessible scrollable table region with caption
+    // 4. Accessible scrollable table region inside the Route Matrix side tab
+    fireEvent.click(screen.getByRole('tab', { name: /Route Matrix/i }));
     const tableRegion = screen.getByRole('region', {
       name: /Multimodal Corridor Candidates/i,
     });
     expect(tableRegion).toHaveAttribute('tabIndex', '0');
+
+    // Return to Dispatch & Map tab for live disruption controls & map interaction
+    fireEvent.click(screen.getByRole('tab', { name: /Dispatch & Map/i }));
 
     // 5. Disruption sliders, checkboxes, and Guided BoL Parse trigger re-solve
     const hormuzSlider = screen.getByLabelText(/Strait of Hormuz Choke Delay/i);
@@ -369,7 +389,8 @@ describe('App', () => {
       })
     );
 
-    fireEvent.click(screen.getByText(/^Bill of Lading Ingestion/i));
+    // 6. Switch to BoL & Diagnostics side tab for BoL Parse & Re-Solve + Telemetry Diagnostics
+    fireEvent.click(screen.getByRole('tab', { name: /BoL & Diagnostics/i }));
     const bolTextarea = screen.getByLabelText(/Guided Bill of Lading Ingestion/i);
     fireEvent.change(bolTextarea, { target: { value: 'BILL OF LADING: BOL-NEW-101' } });
     const parseBtn = screen.getByRole('button', { name: /Parse BoL & Re-Solve/i });
@@ -382,9 +403,8 @@ describe('App', () => {
       expect(screen.getByText(/wf-parsed999/i)).toBeInTheDocument();
     });
 
-    // 7. Secondary enterprise disclosures keep diagnostics hidden until expanded
-    const diagSummary = screen.getByText(/Solver & Pipeline Diagnostics/i);
-    fireEvent.click(diagSummary);
+    // 7. Solver & Pipeline Diagnostics appear directly in the BoL & Diagnostics panel
+    expect(screen.getByText(/Solver & Pipeline Diagnostics/i)).toBeInTheDocument();
     expect(screen.getByText(/Temporal-GATv2/i)).toBeInTheDocument();
   });
 
@@ -449,7 +469,10 @@ describe('App', () => {
     const { container } = render(<App />);
 
     expect(container.querySelector('#live-command-center')).toBeNull();
-    expect(screen.getByText('Corridor Studio.')).toBeInTheDocument();
+    expect(screen.getByText('ParetoLane.')).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/The Autonomous Cargo Rerouting & Customs Engine/i).length
+    ).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('heading', { level: 1, name: /Unmatched/i })).toBeInTheDocument();
 
     const tablist = screen.getByRole('tablist', { name: 'Engine capability selector' });
