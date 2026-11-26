@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -121,5 +123,104 @@ func TestTelemetryInverseCongestionTrapAndSSEBroadcast(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for telemetry_update SSE broadcast")
+	}
+}
+
+type mockPersistenceStore struct {
+	mu        sync.Mutex
+	workflows []*WorkflowRun
+	upserts   int
+	telemetry *TelemetrySnapshot
+	telSaves  int
+}
+
+func (m *mockPersistenceStore) InitSchema(ctx context.Context) error { return nil }
+
+func (m *mockPersistenceStore) LoadRecentWorkflows(ctx context.Context, limit int) ([]*WorkflowRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]*WorkflowRun(nil), m.workflows...), nil
+}
+
+func (m *mockPersistenceStore) UpsertWorkflow(ctx context.Context, run *WorkflowRun) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.upserts++
+	m.workflows = append(m.workflows, run)
+	return nil
+}
+
+func (m *mockPersistenceStore) LoadTelemetrySnapshot(ctx context.Context) (*TelemetrySnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.telemetry, nil
+}
+
+func (m *mockPersistenceStore) SaveTelemetrySnapshot(ctx context.Context, snap TelemetrySnapshot) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.telSaves++
+	cp := snap
+	m.telemetry = &cp
+	return nil
+}
+
+func (m *mockPersistenceStore) Close() {}
+
+func TestWorkflowStorePersistenceHydrateAndWriteThrough(t *testing.T) {
+	seedSnap := TelemetrySnapshot{
+		Disruption: DisruptionState{
+			HormuzDelayHours:        96.0,
+			JebelAliCongestionHours: 32.0,
+			RedSeaSurchargeUSD:      2100.0,
+			ReeferFault:             true,
+		},
+		EdgeOverrides:  map[string]EdgeTelemetryOverride{},
+		LastUpdatedUTC: "2026-11-24T00:00:00Z",
+		ActiveSources:  []string{"marinetraffic_vi06"},
+		EventCount:     3,
+	}
+	mockDB := &mockPersistenceStore{
+		workflows: []*WorkflowRun{
+			{
+				WorkflowID:   "wf-hydrated",
+				Status:       StatusSolved,
+				CreatedAtUTC: "2026-11-24T00:00:00Z",
+			},
+		},
+		telemetry: &seedSnap,
+	}
+
+	store := NewWorkflowStoreWithDB(mockDB)
+	if store.PersistenceMode() != "postgres" {
+		t.Fatalf("expected persistence mode postgres, got %s", store.PersistenceMode())
+	}
+	recent := store.ListRecent(10)
+	if len(recent) != 1 || recent[0].WorkflowID != "wf-hydrated" {
+		t.Fatalf("expected hydrated workflow wf-hydrated, got %+v", recent)
+	}
+	if store.GetTelemetry().EventCount != 3 || store.GetTelemetry().Disruption.HormuzDelayHours != 96.0 {
+		t.Fatalf("expected hydrated telemetry snapshot, got %+v", store.GetTelemetry())
+	}
+
+	store.SaveSolved(&WorkflowRun{
+		WorkflowID:   "wf-new",
+		Status:       StatusSolved,
+		CreatedAtUTC: "2026-11-24T00:05:00Z",
+	})
+	if _, err := store.ApproveAndDispatch("wf-new", "Lead Dispatcher"); err != nil {
+		t.Fatalf("approve failed: %v", err)
+	}
+	if _, err := store.ApplyPollingRefresh([]byte(`{"xeneta":{"red_sea_surcharge_usd":2600}}`)); err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+
+	mockDB.mu.Lock()
+	defer mockDB.mu.Unlock()
+	if mockDB.upserts != 2 {
+		t.Fatalf("expected 2 UpsertWorkflow calls (solve + approve), got %d", mockDB.upserts)
+	}
+	if mockDB.telSaves != 1 {
+		t.Fatalf("expected 1 SaveTelemetrySnapshot call, got %d", mockDB.telSaves)
 	}
 }

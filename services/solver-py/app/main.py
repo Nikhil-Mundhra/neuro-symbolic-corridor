@@ -23,7 +23,7 @@ from app.models import (
     StageLatency,
     ValidationHold,
 )
-from app.network import CORRIDOR_EDGES, get_topology
+from app.network import CORRIDOR_EDGES, apply_edge_overrides, get_topology
 from app.parser import ZeroHallucinationParser, get_scenarios, parse_bol_text
 
 app = FastAPI(
@@ -75,9 +75,11 @@ def solve(req: SolveRequest) -> SolveResponse:
     t0 = time.perf_counter()
     solve_id = str(uuid.uuid4())[:12]
 
+    effective_edges = apply_edge_overrides(CORRIDOR_EDGES, req.edge_overrides)
+
     # Stage: T-GNN warm-start scoring & pruning
     t_gnn_start = time.perf_counter()
-    gnn_metrics = compute_gnn_warmstart(CORRIDOR_EDGES, req.disruption, req.shipment)
+    gnn_metrics = compute_gnn_warmstart(effective_edges, req.disruption, req.shipment)
     gnn_ms = round((time.perf_counter() - t_gnn_start) * 1000.0, 3)
 
     # Stage: Z3 SMT Verification + HiGHS MILP Optimization
@@ -90,7 +92,13 @@ def solve(req: SolveRequest) -> SolveResponse:
             pareto_frontier,
             unit_economics,
             mip_gap,
-        ) = solve_corridor(req.shipment, req.disruption, req.pareto_alpha, gnn_metrics=gnn_metrics)
+        ) = solve_corridor(
+            req.shipment,
+            req.disruption,
+            req.pareto_alpha,
+            gnn_metrics=gnn_metrics,
+            edges=effective_edges if req.edge_overrides else None,
+        )
     except NoFeasibleRouteError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     math_ms = round((time.perf_counter() - t_math_start) * 1000.0, 3)

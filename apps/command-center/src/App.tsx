@@ -11,7 +11,10 @@ import {
   FileText,
   Layers,
   Play,
+  Radio,
+  RefreshCw,
   Scale,
+  ShieldAlert,
   ShieldCheck,
   Terminal,
   Thermometer,
@@ -24,7 +27,10 @@ import type {
   CorridorTopology,
   DisruptionState,
   ScenarioPreset,
+  ShipmentRequest,
   ShipmentSpec,
+  TelemetrySnapshot,
+  ValidationHold,
   WorkflowRun,
 } from './types';
 
@@ -60,6 +66,97 @@ function getScenarioDomainLabel(preset: ScenarioPreset): string {
   return 'Industrial Bulk';
 }
 
+function buildCanonicalSamplePayload(mode: 'valid' | 'incomplete'): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    internal_request_id: mode === 'valid' ? 'REQ-PL-2026-0001' : 'REQ-PL-2026-HOLD',
+    transport_mode: 'MULTIMODAL_SEA_AIR',
+    transport_document_ref: 'MAEU-INNSA-992841',
+    document_status: 'ISSU',
+    customs_regime: 'SEA_AIR_TRANSSHIPMENT',
+    issue_date: '2026-11-24',
+    incoterms_code: 'CIF',
+    mofaic_attested_invoice: true,
+    mofaic_attestation_ref: 'MOFAIC-2026-88412',
+    parties: [
+      {
+        role: 'SHP',
+        legal_name: 'BioGenix Therapeutics Pvt Ltd',
+        address_line: 'Plot 42 MIDC Taloja, Navi Mumbai',
+        country_code: 'IN',
+      },
+      {
+        role: 'CNE',
+        legal_name: 'RheinPharma Distribution GmbH',
+        address_line: 'Cargo City South Bldg 532, Frankfurt',
+        country_code: 'DE',
+        uae_trn: mode === 'valid' ? '100456789012345' : null,
+        uae_trn_fta_verified: mode === 'valid',
+        dubai_customs_code: mode === 'valid' ? 'AE-1234567' : null,
+        eori_number: 'DE8839201948271',
+      },
+    ],
+    legs: [
+      {
+        leg_sequence: 1,
+        mode: 'OCEAN',
+        origin_locode: 'INNSA',
+        destination_locode: 'AEFJR',
+        carrier_code: 'MAEU',
+        voyage_or_flight_number: '418W',
+        scheduled_departure_utc: '2026-11-24T06:00:00Z',
+        scheduled_arrival_utc: '2026-11-27T14:00:00Z',
+      },
+      {
+        leg_sequence: 2,
+        mode: 'AIR',
+        origin_locode: 'AEAUH',
+        destination_locode: 'EUFRA',
+        carrier_code: 'EY',
+        voyage_or_flight_number: 'EY901',
+        scheduled_departure_utc: '2026-11-27T21:00:00Z',
+        scheduled_arrival_utc: '2026-11-28T04:30:00Z',
+      },
+    ],
+    consignment_items: [
+      {
+        item_id: 'ITEM-01',
+        goods_description: 'Monoclonal Antibodies Biologics (2-8C Active Reefer)',
+        hs_code_gcc12: mode === 'valid' ? '300215000010' : null,
+        hs_code_wco6: '300215',
+        quantity: '400',
+        package_type: 'CTN',
+        gross_weight_kg: '12400.00',
+        net_weight_kg: '11200.00',
+        customs_value_amount: '1850000.00',
+        customs_value_currency: 'USD',
+        origin: {
+          country_of_origin: 'IN',
+          certificate_of_origin_no: mode === 'valid' ? 'IN-UAE-CEPA-2026-9910' : null,
+          preferential_cepa_claimed: true,
+          cepa_agreement_code: 'IN-UAE-CEPA',
+          cepa_value_add_pct: mode === 'valid' ? '48.5' : null,
+        },
+        is_reefer: true,
+        reefer_spec: {
+          min_temp_c: '2.0',
+          max_temp_c: '8.0',
+          setpoint_temp_c: '4.0',
+        },
+        is_dangerous_goods: false,
+        regulatory_permits: ['EU-GDP-2013-C343', 'UAE-MOHAP-BIOLOGICS'],
+      },
+    ],
+    utilized_equipments: [
+      {
+        equipment_reference: 'MSKU9070323',
+        iso_size_type_code: '45R1',
+        seal_numbers: ['ETIR-GCC-884210'],
+      },
+    ],
+  };
+  return { shipment: base };
+}
+
 export default function App() {
   const [topology, setTopology] = useState<CorridorTopology>(FALLBACK_TOPOLOGY);
   const [scenarios, setScenarios] = useState<ScenarioPreset[]>(FALLBACK_SCENARIOS);
@@ -76,9 +173,33 @@ export default function App() {
   const [approving, setApproving] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [sseConnected, setSseConnected] = useState<boolean>(false);
+  const [telemetry, setTelemetry] = useState<TelemetrySnapshot | null>(null);
+  const [autoSyncTelemetry, setAutoSyncTelemetry] = useState<boolean>(false);
+  const [validatingGate, setValidatingGate] = useState<boolean>(false);
+  const [gateResult, setGateResult] = useState<
+    | { kind: 'verified'; shipment: ShipmentRequest }
+    | { kind: 'hold'; hold: ValidationHold }
+    | { kind: 'error'; message: string }
+    | null
+  >(null);
   const [modalTab, setModalTab] = useState<'customs' | 'z3'>('customs');
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>('dispatch');
   const tabRefs = useRef<Partial<Record<WorkspaceTabId, HTMLButtonElement | null>>>({});
+  const shipmentRef = useRef<ShipmentSpec>(shipment);
+  const paretoAlphaRef = useRef<number>(paretoAlpha);
+  const autoSyncTelemetryRef = useRef<boolean>(autoSyncTelemetry);
+
+  useEffect(() => {
+    shipmentRef.current = shipment;
+  }, [shipment]);
+
+  useEffect(() => {
+    paretoAlphaRef.current = paretoAlpha;
+  }, [paretoAlpha]);
+
+  useEffect(() => {
+    autoSyncTelemetryRef.current = autoSyncTelemetry;
+  }, [autoSyncTelemetry]);
   const [viewMode, setViewMode] = useState<HomepageViewMode>(() =>
     typeof window !== 'undefined' && window.location.pathname.startsWith('/twin')
       ? 'console'
@@ -165,15 +286,22 @@ export default function App() {
     []
   );
 
-  // Load topology & scenarios from gateway-go on boot
+  // Load topology, scenarios & live telemetry snapshot from gateway-go on boot
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
       try {
-        const [topoRes, scenRes] = await Promise.all([
+        const [topoRes, scenRes, telRes] = await Promise.all([
           fetch('/api/v1/corridor/topology'),
           fetch('/api/v1/scenarios'),
+          fetch('/api/v1/telemetry/state').catch(() => null),
         ]);
+        if (telRes && telRes.ok) {
+          const telData = (await telRes.json()) as TelemetrySnapshot;
+          if (!cancelled && telData && telData.disruption) {
+            setTelemetry(telData);
+          }
+        }
         if (topoRes.ok) {
           const topoData = (await topoRes.json()) as Partial<CorridorTopology>;
           if (!cancelled && Array.isArray(topoData.nodes) && Array.isArray(topoData.edges)) {
@@ -227,11 +355,39 @@ export default function App() {
         // Ignore malformed SSE payload
       }
     });
+    es.addEventListener('telemetry_update', (evt) => {
+      setSseConnected(true);
+      try {
+        const data = JSON.parse((evt as MessageEvent<string>).data) as {
+          active_sources?: string[];
+          event_count?: number;
+          disruption?: DisruptionState;
+          edge_overrides?: TelemetrySnapshot['edge_overrides'];
+          timestamp?: string;
+        };
+        setTelemetry((prev) => {
+          const nextDisruption = data.disruption ?? prev?.disruption ?? FALLBACK_SCENARIOS[0].default_disruption;
+          return {
+            disruption: nextDisruption,
+            edge_overrides: data.edge_overrides ?? prev?.edge_overrides ?? {},
+            last_updated_utc: data.timestamp ?? new Date().toISOString(),
+            active_sources: data.active_sources ?? prev?.active_sources ?? [],
+            event_count: data.event_count ?? prev?.event_count ?? 0,
+          };
+        });
+        if (autoSyncTelemetryRef.current && data.disruption) {
+          setDisruption(data.disruption);
+          void runSolve(shipmentRef.current, data.disruption, paretoAlphaRef.current);
+        }
+      } catch {
+        // Ignore malformed telemetry SSE payload
+      }
+    });
     es.onerror = () => setSseConnected(false);
     return () => {
       es.close();
     };
-  }, []);
+  }, [runSolve]);
 
   // Configure native <dialog> returnValue reset and light-dismiss fallback for browsers lacking closedBy
   useEffect(() => {
@@ -312,6 +468,43 @@ export default function App() {
       setErrorMsg(err instanceof Error ? err.message : 'Approval error');
     } finally {
       setApproving(false);
+    }
+  };
+
+  const handleSyncLiveTelemetry = () => {
+    if (!telemetry) return;
+    setDisruption(telemetry.disruption);
+    void runSolve(shipment, telemetry.disruption, paretoAlpha);
+  };
+
+  const handleValidateShipment = async (mode: 'valid' | 'incomplete') => {
+    setValidatingGate(true);
+    setGateResult(null);
+    try {
+      const res = await fetch('/api/v1/validate-shipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildCanonicalSamplePayload(mode)),
+      });
+      const body = (await res.json()) as ShipmentRequest | ValidationHold | { error?: string };
+      if (res.status === 200) {
+        setGateResult({ kind: 'verified', shipment: body as ShipmentRequest });
+      } else if (res.status === 422) {
+        setGateResult({ kind: 'hold', hold: body as ValidationHold });
+      } else {
+        setGateResult({
+          kind: 'error',
+          message:
+            (body as { error?: string }).error ?? `Compliance gate returned HTTP ${res.status}`,
+        });
+      }
+    } catch (err) {
+      setGateResult({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'Failed to reach compliance gate',
+      });
+    } finally {
+      setValidatingGate(false);
     }
   };
 
@@ -408,6 +601,13 @@ export default function App() {
             <Activity size={13} />
             {sseConnected ? 'SSE Live' : 'Connecting'}
           </span>
+          {telemetry && (
+            <span className="pill tabular" data-testid="telemetry-status-pill">
+              <Radio size={13} />
+              Telemetry: {telemetry.event_count} events ·{' '}
+              {Object.keys(telemetry.edge_overrides ?? {}).length} overrides
+            </span>
+          )}
           {workflow && (
             <span className="pill tabular">
               {workflow.total_pipeline_ms.toFixed(1)} ms E2E · {workflow.workflow_id} (
@@ -777,6 +977,49 @@ export default function App() {
                     />
                     <span>Enforce UAE-India CEPA 0% Duty Proof (Z3)</span>
                   </label>
+
+                  <div className="telemetry-sync-card" aria-label="Live Telemetry Feed">
+                    <div className="telemetry-sync-head">
+                      <span className="section-label">Live Telemetry Feed</span>
+                      <span className="mono tabular telemetry-sync-meta">
+                        {telemetry ? `${telemetry.event_count} events` : 'Standby'} ·{' '}
+                        {Object.keys(telemetry?.edge_overrides ?? {}).length} edge overrides
+                      </span>
+                    </div>
+                    <div className="telemetry-source-pills">
+                      {telemetry && telemetry.active_sources.length > 0 ? (
+                        telemetry.active_sources.map((src) => (
+                          <span key={src} className="shock-chip mono">
+                            {src}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="telemetry-empty-hint">
+                          Awaiting Vizion / Lynx / MarineTraffic / Xeneta webhooks
+                        </span>
+                      )}
+                    </div>
+                    <div className="telemetry-sync-actions">
+                      <button
+                        type="button"
+                        className="btn"
+                        disabled={!telemetry || solving}
+                        onClick={handleSyncLiveTelemetry}
+                      >
+                        <RefreshCw size={13} /> Sync Live Telemetry
+                      </button>
+                      <label className="checkbox-label telemetry-auto-toggle" htmlFor="auto-sync-telemetry">
+                        <input
+                          id="auto-sync-telemetry"
+                          type="checkbox"
+                          className={usesAccentFallback ? 'visually-hidden' : undefined}
+                          checked={autoSyncTelemetry}
+                          onChange={(e) => setAutoSyncTelemetry(e.target.checked)}
+                        />
+                        <span>Auto-re-solve</span>
+                      </label>
+                    </div>
+                  </div>
 
                   <div className="cockpit-submit-row">
                     <button type="submit" className="btn primary" disabled={solving}>
@@ -1249,6 +1492,105 @@ export default function App() {
                   <p className="standby-desc">
                     Solver telemetry populates automatically once the first pipeline run completes.
                   </p>
+                )}
+              </div>
+
+              <div className="panel diagnostics-full-span" aria-label="Canonical Compliance Gate">
+                <div className="workspace-intro-head">
+                  <div>
+                    <h2 className="workspace-heading">
+                      Canonical Compliance Gate (<code>/api/v1/validate-shipment</code>)
+                    </h2>
+                    <p className="workspace-subcopy">
+                      Zero-Hallucination DCSA eBL 3.0 &amp; GCC 12-digit HS validation gate. Missing
+                      mandatory customs fields trigger an explicit <code>VALIDATION_HOLD</code> that
+                      blocks autonomous dispatch.
+                    </p>
+                  </div>
+                  <div className="btn-row">
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={validatingGate}
+                      onClick={() => void handleValidateShipment('valid')}
+                    >
+                      <ShieldCheck size={14} /> Test Valid DCSA eBL 3.0
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={validatingGate}
+                      onClick={() => void handleValidateShipment('incomplete')}
+                    >
+                      <ShieldAlert size={14} /> Test Incomplete Manifest (Hold)
+                    </button>
+                  </div>
+                </div>
+
+                {gateResult?.kind === 'verified' && (
+                  <div className="dispatch-banner" role="status">
+                    <span className="badge sat">VERIFIED SHIPMENT</span>
+                    <strong>{gateResult.shipment.internal_request_id}</strong>
+                    <span className="mono">{gateResult.shipment.transport_document_ref}</span>
+                    <span>
+                      Incoterms {gateResult.shipment.incoterms_code} ·{' '}
+                      {gateResult.shipment.consignment_items.length} verified item(s) · Autonomous
+                      dispatch permitted
+                    </span>
+                  </div>
+                )}
+
+                {gateResult?.kind === 'hold' && (
+                  <div className="validation-hold-panel" role="alert">
+                    <div className="validation-hold-head">
+                      <span className="badge unsat">{gateResult.hold.status}</span>
+                      <strong>
+                        Autonomous Dispatch Blocked ({gateResult.hold.internal_request_id})
+                      </strong>
+                      <span className="mono tabular">
+                        {gateResult.hold.missing_compliance_fields.length} missing compliance
+                        field(s)
+                      </span>
+                    </div>
+                    <div
+                      tabIndex={0}
+                      role="region"
+                      aria-labelledby="validation-hold-caption"
+                      className="table-wrapper"
+                    >
+                      <table className="route-table">
+                        <caption id="validation-hold-caption">
+                          Zero-Hallucination ValidationHold Missing Compliance Fields
+                        </caption>
+                        <thead>
+                          <tr>
+                            <th>Field Path</th>
+                            <th>Reason Code</th>
+                            <th>Regulatory Reference</th>
+                            <th>Detail</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {gateResult.hold.missing_compliance_fields.map((f) => (
+                            <tr key={`${f.field_path}-${f.reason_code}`}>
+                              <td className="mono">{f.field_path}</td>
+                              <td>
+                                <span className="badge unsat">{f.reason_code}</span>
+                              </td>
+                              <td className="mono">{f.regulatory_reference}</td>
+                              <td>{f.message}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {gateResult?.kind === 'error' && (
+                  <div className="dispatch-banner error-banner" role="alert">
+                    <AlertTriangle size={14} /> {gateResult.message}
+                  </div>
                 )}
               </div>
             </div>

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"sync"
@@ -207,10 +209,15 @@ type WorkflowStore struct {
 	order       []string
 	subscribers map[chan []byte]struct{}
 	telemetry   TelemetrySnapshot
+	db          PersistenceStore
 }
 
 func NewWorkflowStore() *WorkflowStore {
-	return &WorkflowStore{
+	return NewWorkflowStoreWithDB(nil)
+}
+
+func NewWorkflowStoreWithDB(db PersistenceStore) *WorkflowStore {
+	store := &WorkflowStore{
 		workflows:   make(map[string]*WorkflowRun),
 		order:       make([]string, 0, 64),
 		subscribers: make(map[chan []byte]struct{}),
@@ -228,6 +235,65 @@ func NewWorkflowStore() *WorkflowStore {
 			ActiveSources:  []string{},
 			EventCount:     0,
 		},
+		db: db,
+	}
+
+	if db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if runs, err := db.LoadRecentWorkflows(ctx, 100); err != nil {
+			log.Printf("warn: failed to hydrate workflows from persistence: %v", err)
+		} else {
+			for _, run := range runs {
+				if run == nil || run.WorkflowID == "" {
+					continue
+				}
+				if _, exists := store.workflows[run.WorkflowID]; !exists {
+					store.order = append(store.order, run.WorkflowID)
+				}
+				store.workflows[run.WorkflowID] = run
+			}
+		}
+
+		if snap, err := db.LoadTelemetrySnapshot(ctx); err != nil {
+			log.Printf("warn: failed to hydrate telemetry snapshot from persistence: %v", err)
+		} else if snap != nil {
+			if snap.EdgeOverrides == nil {
+				snap.EdgeOverrides = make(map[string]EdgeTelemetryOverride)
+			}
+			if snap.ActiveSources == nil {
+				snap.ActiveSources = []string{}
+			}
+			store.telemetry = *snap
+		}
+	}
+
+	return store
+}
+
+func (s *WorkflowStore) PersistenceMode() string {
+	if s.db != nil {
+		return "postgres"
+	}
+	return "memory"
+}
+
+func (s *WorkflowStore) persistWorkflow(run *WorkflowRun) {
+	if s.db == nil || run == nil {
+		return
+	}
+	if err := s.db.UpsertWorkflow(context.Background(), run); err != nil {
+		log.Printf("warn: persist workflow %s failed: %v", run.WorkflowID, err)
+	}
+}
+
+func (s *WorkflowStore) persistTelemetry(snap TelemetrySnapshot) {
+	if s.db == nil {
+		return
+	}
+	if err := s.db.SaveTelemetrySnapshot(context.Background(), snap); err != nil {
+		log.Printf("warn: persist telemetry snapshot failed: %v", err)
 	}
 }
 
@@ -238,6 +304,7 @@ func (s *WorkflowStore) SaveSolved(run *WorkflowRun) {
 	}
 	s.workflows[run.WorkflowID] = run
 	s.mu.Unlock()
+	s.persistWorkflow(run)
 	s.broadcast(run)
 }
 
@@ -288,6 +355,7 @@ func (s *WorkflowStore) ApproveAndDispatch(workflowID, operator string) (*Workfl
 	}
 	s.mu.Unlock()
 
+	s.persistWorkflow(wf)
 	s.broadcast(wf)
 	return wf, nil
 }
@@ -363,6 +431,7 @@ func (s *WorkflowStore) broadcastTelemetry(snap TelemetrySnapshot) {
 		"active_sources": snap.ActiveSources,
 		"event_count":    snap.EventCount,
 		"disruption":     snap.Disruption,
+		"edge_overrides": snap.EdgeOverrides,
 		"timestamp":      snap.LastUpdatedUTC,
 	})
 }
@@ -488,6 +557,7 @@ func (s *WorkflowStore) ApplyVizionWebhook(body []byte) (TelemetrySnapshot, erro
 	snap := s.snapshotCopyLocked()
 	s.mu.Unlock()
 
+	s.persistTelemetry(snap)
 	s.broadcastTelemetry(snap)
 	return snap, nil
 }
@@ -551,6 +621,7 @@ func (s *WorkflowStore) ApplyCarrierLynxWebhook(body []byte) (TelemetrySnapshot,
 	snap := s.snapshotCopyLocked()
 	s.mu.Unlock()
 
+	s.persistTelemetry(snap)
 	s.broadcastTelemetry(snap)
 	return snap, nil
 }
@@ -584,6 +655,7 @@ func (s *WorkflowStore) ApplyProject44Webhook(body []byte) (TelemetrySnapshot, e
 	snap := s.snapshotCopyLocked()
 	s.mu.Unlock()
 
+	s.persistTelemetry(snap)
 	s.broadcastTelemetry(snap)
 	return snap, nil
 }
@@ -663,6 +735,7 @@ func (s *WorkflowStore) ApplyPollingRefresh(body []byte) (TelemetrySnapshot, err
 	snap := s.snapshotCopyLocked()
 	s.mu.Unlock()
 
+	s.persistTelemetry(snap)
 	s.broadcastTelemetry(snap)
 	return snap, nil
 }

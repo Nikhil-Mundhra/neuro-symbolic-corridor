@@ -25,12 +25,19 @@ type GatewayServer struct {
 }
 
 func NewGatewayServer(solverURL string) *GatewayServer {
+	return NewGatewayServerWithStore(solverURL, NewWorkflowStore())
+}
+
+func NewGatewayServerWithStore(solverURL string, store *WorkflowStore) *GatewayServer {
+	if store == nil {
+		store = NewWorkflowStore()
+	}
 	return &GatewayServer{
 		solverURL: strings.TrimRight(solverURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		store: NewWorkflowStore(),
+		store: store,
 	}
 }
 
@@ -96,6 +103,7 @@ func (g *GatewayServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":        "ok",
 		"service":       "gateway-go",
 		"solver_status": solverStatus,
+		"persistence":   g.store.PersistenceMode(),
 		"timestamp_utc": time.Now().UTC().Format(time.RFC3339),
 	})
 }
@@ -189,6 +197,26 @@ func (g *GatewayServer) callSolverWithRetry(ctx context.Context, body []byte) ([
 	return nil, 1, lastErr
 }
 
+func (g *GatewayServer) mergeActiveEdgeOverrides(body []byte) []byte {
+	telemetry := g.store.GetTelemetry()
+	if len(telemetry.EdgeOverrides) == 0 {
+		return body
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return body
+	}
+	if _, exists := payload["edge_overrides"]; exists {
+		return body
+	}
+	payload["edge_overrides"] = telemetry.EdgeOverrides
+	merged, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return merged
+}
+
 func (g *GatewayServer) handleSolve(w http.ResponseWriter, r *http.Request) {
 	tStart := time.Now()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -196,6 +224,7 @@ func (g *GatewayServer) handleSolve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	body = g.mergeActiveEdgeOverrides(body)
 
 	wfID := newWorkflowID()
 	tIngestDone := time.Now()
@@ -431,8 +460,25 @@ func main() {
 		solverURL = "http://127.0.0.1:8001"
 	}
 
-	srv := NewGatewayServer(solverURL)
-	log.Printf("gateway-go listening on :%s (solver: %s)", port, solverURL)
+	var db PersistenceStore
+	if databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); databaseURL != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		pgStore, err := NewPostgresStore(ctx, databaseURL)
+		cancel()
+		if err != nil {
+			log.Printf("warn: postgres unavailable (%v); falling back to in-memory WorkflowStore", err)
+		} else if err := pgStore.InitSchema(context.Background()); err != nil {
+			log.Printf("warn: postgres schema init failed (%v); falling back to in-memory WorkflowStore", err)
+			pgStore.Close()
+		} else {
+			db = pgStore
+			defer pgStore.Close()
+		}
+	}
+
+	store := NewWorkflowStoreWithDB(db)
+	srv := NewGatewayServerWithStore(solverURL, store)
+	log.Printf("gateway-go listening on :%s (solver: %s, persistence: %s)", port, solverURL, store.PersistenceMode())
 	if err := http.ListenAndServe(":"+port, srv.Routes()); err != nil {
 		log.Fatal(err)
 	}

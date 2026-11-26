@@ -3335,6 +3335,74 @@ dialog.customs-dialog::backdrop {
   align-items: start;
 }
 
+.diagnostics-full-span {
+  grid-column: 1 / -1;
+}
+
+.telemetry-sync-card {
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.telemetry-sync-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.telemetry-sync-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.telemetry-source-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.telemetry-empty-hint {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.telemetry-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.telemetry-auto-toggle {
+  margin: 0;
+  font-size: 0.76rem;
+}
+
+.validation-hold-panel {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.validation-hold-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.84rem;
+}
+
 .bol-textarea-tall {
   min-height: 185px;
 }

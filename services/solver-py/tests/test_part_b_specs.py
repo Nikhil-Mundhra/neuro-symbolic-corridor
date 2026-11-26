@@ -794,3 +794,66 @@ def test_agent3_schema_accurate_customs_payload_builders() -> None:
 
     assert date.fromisoformat("2026-11-18") == req.issue_date
     assert Decimal("1850000.00") == req.consignment_items[0].customs_value_amount
+
+
+def test_dynamic_edge_overrides_shift_optimal_route_without_mutating_topology() -> None:
+    """Verify live EdgeTelemetryOverride patches apply cleanly and shift MILP route selection."""
+    from app.models import EdgeTelemetryOverride
+    from app.network import CORRIDOR_EDGES, apply_edge_overrides
+    from app.parser import get_scenarios
+
+    orig_fjr = next(e for e in CORRIDOR_EDGES if e.id == "E_INNSA_AEFJR_SEA")
+    orig_hours = orig_fjr.base_hours
+
+    # 1. Empty overrides returns shallow copy without mutation
+    assert len(apply_edge_overrides(CORRIDOR_EDGES, {})) == len(CORRIDOR_EDGES)
+
+    # 2. All-fields override + no-op override
+    overrides = {
+        "E_INNSA_AEFJR_SEA": EdgeTelemetryOverride(
+            edge_id="E_INNSA_AEFJR_SEA",
+            base_hours=220.0,
+            base_cost_per_teu_usd=3200.0,
+            thermal_drift_c_per_hour=0.05,
+            capacity_teu=200,
+            source_provider="marinetraffic_vi06",
+            updated_at_utc="2026-11-24T00:00:00Z",
+        ),
+        "E_INNSA_OMSOH_SEA": EdgeTelemetryOverride(
+            edge_id="E_INNSA_OMSOH_SEA",
+            source_provider="noop_probe",
+            updated_at_utc="2026-11-24T00:00:00Z",
+        ),
+    }
+    patched = apply_edge_overrides(CORRIDOR_EDGES, overrides)
+    patched_fjr = next(e for e in patched if e.id == "E_INNSA_AEFJR_SEA")
+    assert patched_fjr.base_hours == 220.0
+    assert patched_fjr.base_cost_per_teu_usd == 3200.0
+    assert patched_fjr.thermal_drift_c_per_hour == 0.05
+    assert patched_fjr.capacity_teu == 200
+    # Canonical CORRIDOR_EDGES must remain untouched
+    assert orig_fjr.base_hours == orig_hours
+
+    # 3. End-to-end POST /solve shifts optimal route away from congested AEFJR to OMSOH
+    pharma = get_scenarios()[0]
+    resp = client.post(
+        "/solve",
+        json={
+            "shipment": pharma.shipment.model_dump(),
+            "disruption": pharma.default_disruption.model_dump(),
+            "pareto_alpha": 0.55,
+            "edge_overrides": {
+                "E_INNSA_AEFJR_SEA": {
+                    "edge_id": "E_INNSA_AEFJR_SEA",
+                    "base_hours": 248.0,
+                    "source_provider": "marinetraffic_vi06",
+                    "updated_at_utc": "2026-11-24T00:00:00Z",
+                }
+            },
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["optimal_route"]["z3_status"] == "SAT"
+    assert "OMSOH" in body["optimal_route"]["node_sequence"]
+    assert "AEFJR" not in body["optimal_route"]["node_sequence"]

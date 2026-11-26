@@ -175,6 +175,7 @@ class SolveRequest(BaseModel):
     shipment: ShipmentSpec
     disruption: DisruptionState
     pareto_alpha: float = Field(default=0.55, ge=0.0, le=1.0)
+    edge_overrides: dict[str, EdgeTelemetryOverride] = Field(default_factory=dict)
 
 
 class SolveResponse(BaseModel):
@@ -571,3 +572,6 @@ class TelemetrySnapshot(BaseModel):
     last_updated_utc: str
     active_sources: list[str] = Field(default_factory=list)
     event_count: int = 0
+
+
+SolveRequest.model_rebuild()

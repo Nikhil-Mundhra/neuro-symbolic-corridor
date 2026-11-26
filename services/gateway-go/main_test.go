@@ -368,3 +368,73 @@ func TestTelemetryWebhooksPollingAndValidateProxy(t *testing.T) {
 		t.Fatalf("expected E_INNSA_AEFJR_SEA override from MarineTraffic VI06 refresh")
 	}
 }
+
+func TestHandleSolveInjectsActiveEdgeOverrides(t *testing.T) {
+	var receivedPayloads []map[string]any
+	var mu sync.Mutex
+
+	mockSolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		receivedPayloads = append(receivedPayloads, body)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"solve_id":"ov-1","total_solver_ms":10.0,"stage_latencies":[]}`))
+	}))
+	defer mockSolver.Close()
+
+	gw := NewGatewayServer(mockSolver.URL)
+	handler := gw.Routes()
+
+	// Verify /health exposes persistence mode
+	hReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	hRec := httptest.NewRecorder()
+	handler.ServeHTTP(hRec, hReq)
+	if !strings.Contains(hRec.Body.String(), `"persistence":"memory"`) {
+		t.Fatalf("expected memory persistence mode in /health, got %s", hRec.Body.String())
+	}
+
+	// Seed a MarineTraffic VI06 edge override on AEFJR
+	refBody := `{"marine_traffic":[{"unlocode":"AEFJR","median_anchorage_time_hours":120.0,"median_port_time_hours":8.0}]}`
+	refReq := httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/refresh", bytes.NewBufferString(refBody))
+	refRec := httptest.NewRecorder()
+	handler.ServeHTTP(refRec, refReq)
+	if refRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on refresh, got %d", refRec.Code)
+	}
+
+	// 1. Solve without edge_overrides -> gateway injects active overrides
+	solveReq := httptest.NewRequest(http.MethodPost, "/api/v1/solve", bytes.NewBufferString(`{"pareto_alpha":0.55}`))
+	solveRec := httptest.NewRecorder()
+	handler.ServeHTTP(solveRec, solveReq)
+	if solveRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on solve, got %d", solveRec.Code)
+	}
+
+	// 2. Solve with explicit edge_overrides -> gateway preserves caller overrides
+	explicitReq := httptest.NewRequest(http.MethodPost, "/api/v1/solve", bytes.NewBufferString(`{"pareto_alpha":0.55,"edge_overrides":{}}`))
+	explicitRec := httptest.NewRecorder()
+	handler.ServeHTTP(explicitRec, explicitReq)
+	if explicitRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on explicit solve, got %d", explicitRec.Code)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedPayloads) != 2 {
+		t.Fatalf("expected 2 solver calls, got %d", len(receivedPayloads))
+	}
+	injected, ok := receivedPayloads[0]["edge_overrides"].(map[string]any)
+	if !ok || injected["E_INNSA_AEFJR_SEA"] == nil {
+		t.Fatalf("expected E_INNSA_AEFJR_SEA injected into solver payload, got %+v", receivedPayloads[0])
+	}
+	explicit, ok := receivedPayloads[1]["edge_overrides"].(map[string]any)
+	if !ok || len(explicit) != 0 {
+		t.Fatalf("expected caller explicit empty edge_overrides preserved, got %+v", receivedPayloads[1])
+	}
+}

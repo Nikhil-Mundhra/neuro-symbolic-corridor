@@ -505,4 +505,119 @@ describe('App', () => {
       expect(screen.getByRole('alert')).toBeInTheDocument();
     });
   });
+
+  it('handles live telemetry_update SSE events and ValidationHold compliance gate in Diagnostics', async () => {
+    const listeners: Record<string, ((evt: MessageEvent<string>) => void)[]> = {};
+    class InteractiveEventSource {
+      addEventListener = vi.fn((type: string, cb: (evt: MessageEvent<string>) => void) => {
+        listeners[type] = listeners[type] ?? [];
+        listeners[type].push(cb);
+      });
+      close = vi.fn();
+      onerror: (() => void) | null = null;
+    }
+    vi.stubGlobal('EventSource', InteractiveEventSource);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/topology')) {
+          return Promise.resolve(new Response(JSON.stringify(FALLBACK_TOPOLOGY), { status: 200 }));
+        }
+        if (url.includes('/scenarios')) {
+          return Promise.resolve(new Response(JSON.stringify(FALLBACK_SCENARIOS), { status: 200 }));
+        }
+        if (url.includes('/telemetry/state')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                disruption: FALLBACK_SCENARIOS[0].default_disruption,
+                edge_overrides: {},
+                last_updated_utc: '2026-11-24T00:00:00Z',
+                active_sources: ['vizion_dcsa'],
+                event_count: 1,
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes('/validate-shipment')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                status: 'VALIDATION_HOLD',
+                autonomous_dispatch_blocked: true,
+                requires_human_review: true,
+                internal_request_id: 'REQ-PL-2026-HOLD',
+                held_at_utc: '2026-11-24T00:00:00Z',
+                missing_compliance_fields: [
+                  {
+                    field_path: 'consignment_items[0].hs_code_gcc12',
+                    reason_code: 'MISSING_MANDATORY_FIELD',
+                    message: '12-digit GCC HS code is required for Mirsal 2 / Bayan customs clearance.',
+                    candidate_values: [],
+                    regulatory_reference: 'UAE Federal Customs / GCC 12-Digit HS Mandate',
+                  },
+                ],
+              }),
+              { status: 422 }
+            )
+          );
+        }
+        return Promise.resolve(new Response(JSON.stringify({}), { status: 500 }));
+      })
+    );
+
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId('telemetry-status-pill')).toHaveTextContent(/1 events/i);
+    });
+
+    // Dispatch a live telemetry_update SSE event with MarineTraffic override
+    const telHandlers = listeners['telemetry_update'] ?? [];
+    expect(telHandlers.length).toBeGreaterThanOrEqual(1);
+    telHandlers.forEach((fn) =>
+      fn(
+        new MessageEvent('telemetry_update', {
+          data: JSON.stringify({
+            event: 'telemetry_update',
+            active_sources: ['vizion_dcsa', 'marinetraffic_vi06'],
+            event_count: 2,
+            disruption: {
+              ...FALLBACK_SCENARIOS[0].default_disruption,
+              hormuz_delay_hours: 96,
+            },
+            edge_overrides: {
+              E_INNSA_AEFJR_SEA: {
+                edge_id: 'E_INNSA_AEFJR_SEA',
+                base_hours: 200,
+                source_provider: 'marinetraffic_vi06',
+                updated_at_utc: '2026-11-24T00:01:00Z',
+              },
+            },
+            timestamp: '2026-11-24T00:01:00Z',
+          }),
+        })
+      )
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('telemetry-status-pill')).toHaveTextContent(
+        /2 events · 1 overrides/i
+      );
+    });
+    expect(screen.getByText('marinetraffic_vi06')).toBeInTheDocument();
+
+    // Switch to BoL & Diagnostics tab and trigger ValidationHold gate
+    fireEvent.click(screen.getByRole('tab', { name: /BoL & Diagnostics/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Test Incomplete Manifest \(Hold\)/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Autonomous Dispatch Blocked \(REQ-PL-2026-HOLD\)/i)
+      ).toBeInTheDocument();
+      expect(screen.getByText('consignment_items[0].hs_code_gcc12')).toBeInTheDocument();
+      expect(screen.getByText('MISSING_MANDATORY_FIELD')).toBeInTheDocument();
+    });
+  });
 });

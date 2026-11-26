@@ -9,6 +9,7 @@ from app.models import (
     CorridorNode,
     CorridorTopology,
     DisruptionState,
+    EdgeTelemetryOverride,
     GNNWarmStartMetrics,
     ShipmentSpec,
     TransportMode,
@@ -416,6 +417,33 @@ def get_edge_map() -> dict[str, CorridorEdge]:
 
 def get_node_map() -> dict[str, CorridorNode]:
     return {node.id: node for node in CORRIDOR_NODES}
+
+
+def apply_edge_overrides(
+    edges: list[CorridorEdge],
+    overrides: dict[str, EdgeTelemetryOverride] | None,
+) -> list[CorridorEdge]:
+    """Return a non-mutating edge list with live telemetry overrides applied."""
+    if not overrides:
+        return list(edges)
+
+    updated: list[CorridorEdge] = []
+    for edge in edges:
+        ov = overrides.get(edge.id)
+        if ov is None:
+            updated.append(edge)
+            continue
+        patch: dict[str, float | int] = {}
+        if ov.base_hours is not None and ov.base_hours > 0:
+            patch["base_hours"] = ov.base_hours
+        if ov.base_cost_per_teu_usd is not None and ov.base_cost_per_teu_usd >= 0:
+            patch["base_cost_per_teu_usd"] = ov.base_cost_per_teu_usd
+        if ov.thermal_drift_c_per_hour is not None and ov.thermal_drift_c_per_hour >= 0:
+            patch["thermal_drift_c_per_hour"] = ov.thermal_drift_c_per_hour
+        if ov.capacity_teu is not None and ov.capacity_teu >= 1:
+            patch["capacity_teu"] = ov.capacity_teu
+        updated.append(edge.model_copy(update=patch) if patch else edge)
+    return updated
 
 
 # Reference corridor routes for canonical route_id/name labeling and UI comparison rows.

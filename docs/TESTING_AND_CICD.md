@@ -1,6 +1,6 @@
-# Testing & CI/CD Guardrails Architecture
+# ParetoLane — Testing & CI/CD Guardrails Architecture
 
-This document defines the Senior SWE Testing & Continuous Integration Guardrails for the **Neuro-Symbolic Gulf Corridor Solver**.
+This document defines the Senior SWE Testing & Continuous Integration Guardrails for **ParetoLane** (*The Autonomous Cargo Rerouting & Customs Engine*, powered by the Neuro-Symbolic Gulf Corridor Solver).
 
 Because this system dispatches bonded multi-modal customs transshipments across India, Oman, the UAE, and Europe under strict **UAE-India CEPA Rules of Origin**, **GCC e-TIR Customs Bonds**, and **EU/MOHAP GDP Cold-Chain SLAs**, standard CRUD testing is insufficient. Our guardrails are structured around two orthogonal engineering frameworks:
 
@@ -82,13 +82,13 @@ Every commit and pull request is gated against both **code coverage ratchets** a
 
 | Pipeline Stage / Component | Enforced SLA / Gate | Observed Baseline | Guardrail Test |
 | :--- | :--- | :--- | :--- |
-| **Stage 1: Go Gateway Ingest** | `< 10.0 ms` | `~0.08 ms` | `TestLiveSolverEndToEndContractAndSLAGate` |
+| **Stage 1: Go Gateway Ingest** | `< 10.0 ms` | `~0.10 ms` | `TestLiveSolverEndToEndContractAndSLAGate` |
 | **Stage 2: Guided BoL Schema Extraction** | `< 25.0 ms` (P99) | `~0.15 ms` | `test_stage_and_p99_latency_sla_budgets` |
-| **Stage 3: T-GNN Warm-Start Variable Pruning** | `< 30.0 ms` (P99) | `~0.45 ms` | `test_stage_and_p99_latency_sla_budgets` |
-| **Stage 4: Z3 SMT Check + HiGHS MILP Solve** | `< 200.0 ms` (P99) | `~16.20 ms` | `test_stage_and_p99_latency_sla_budgets` |
-| **Stage 5: Customs Bridge & SSE Push** | `< 50.0 ms` (P99) | `~0.35 ms` | `test_stage_and_p99_latency_sla_budgets` |
-| **Total End-to-End Pipeline (`gateway-go` <-> `solver-py`)** | `< 400.0 ms` (P99) | `~18.02 ms` | `TestLiveSolverEndToEndContractAndSLAGate` |
-| **Python Solver Branch Coverage (`services/solver-py`)** | `>= 95.0%` | `100.0%` | `pytest --cov=app --cov-fail-under=95` |
+| **Stage 3: T-GNN Warm-Start Variable Pruning (ONNX)** | `< 30.0 ms` (P99) | `~0.60 ms` | `test_stage_and_p99_latency_sla_budgets` |
+| **Stage 4: Z3 SMT Check + Time-Expanded HiGHS MILP** | `< 200.0 ms` (P99) | `~95.0 ms` | `test_stage_and_p99_latency_sla_budgets` |
+| **Stage 5: Customs Bridge & SSE Push** | `< 50.0 ms` (P99) | `~0.40 ms` | `test_stage_and_p99_latency_sla_budgets` |
+| **Total End-to-End Pipeline (`gateway-go` <-> `solver-py`)** | `< 400.0 ms` (P99) | `~117.2 ms` | `TestLiveSolverEndToEndContractAndSLAGate` |
+| **Python Solver Branch Coverage (`services/solver-py`)** | `>= 95.0%` | `>= 98.5%` | `pytest --cov=app --cov-fail-under=95` |
 
 ---
 

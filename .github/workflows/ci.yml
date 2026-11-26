@@ -39,7 +39,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "^1.26.0"
-          cache-dependency-path: services/gateway-go/go.mod
+          cache-dependency-path: services/gateway-go/go.sum
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -90,7 +90,11 @@ jobs:
         working-directory: services/solver-py
         run: |
           uv venv --python 3.12 .venv
-          uv pip install --python .venv/bin/python -e ".[dev]"
+          uv pip install --python .venv/bin/python \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --extra-index-url https://pypi.org/simple \
+            --index-strategy unsafe-best-match \
+            -e ".[dev,ml]"
 
       - name: Run L1 Unit + L1.5 Hypothesis Property Fuzzing + L2/L3 Gates
         working-directory: services/solver-py
@@ -113,7 +117,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "^1.26.0"
-          cache-dependency-path: services/gateway-go/go.mod
+          cache-dependency-path: services/gateway-go/go.sum
 
       - name: Run Go Race-Checked Unit Tests & Coverage Gate
         working-directory: services/gateway-go
@@ -169,7 +173,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: "^1.26.0"
-          cache-dependency-path: services/gateway-go/go.mod
+          cache-dependency-path: services/gateway-go/go.sum
 
       - name: Boot solver-py and execute live cross-service E2E + P99 SLA benchmark
         run: |
