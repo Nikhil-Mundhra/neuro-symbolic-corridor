@@ -63,6 +63,7 @@ docker compose up --build
 
 ## Documentation
 - [System Architecture & Mathematical Formulation](docs/ARCHITECTURE.md)
+- [Corridor Market Validation Dossier (2022–2026)](docs/CORRIDOR_EVIDENCE_VALIDATION.md)
 - [Testing & CI/CD Guardrails](docs/TESTING_AND_CICD.md)
 - [Phased Product Roadmap (Nov 2026 – Q4 2027)](docs/ROADMAP.md)
 - [SWE Standards & Contributing](CONTRIBUTING.md)
